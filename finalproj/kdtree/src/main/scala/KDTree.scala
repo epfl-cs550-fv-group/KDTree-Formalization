@@ -22,6 +22,19 @@ def keyOrder(a: Key, b: Key): Int = {
   }
 } ensuring (r => if r == 0 then a == b else a != b)
 
+def keyOrderAssoc(a: Key, b: Key, c: Key): Unit = {
+  require(a.length == b.length && b.length == c.length)
+  require(keyOrder(a, b) <= 0)
+  require(keyOrder(b, c) <= 0)
+  (a, b, c) match {
+    case (Nil(), _, _) => {}
+    case (Cons(ha, ta), Cons(hb, tb), Cons(hc, tc)) =>
+      if ha == hb && hb == hc then keyOrderAssoc(ta, tb, tc)
+      else if ha < hb then assert(ha < hc)
+      else {}
+  }
+} ensuring (keyOrder(a, c) <= 0)
+
 /** Compares two keys given the first major index. Returns -1 if `a < b`, 1 if
   * `a > b` and 0 if `a = b`
   */
@@ -160,6 +173,36 @@ case class Node[T](data: Data[T], index: BigInt, left: Tree[T], right: Tree[T])
       dr.key.length == data.key.length &&
       keyOrderBy(index, dr.key, data.key) > 0
   )
+
+  val key = data.key
+
+  /** Returns the bounds of a node */
+  def bounds: (Key, Key) = {
+    val withLeft = left match
+      case Empty() => (key, key)
+      case Node(dl, _, _, _) =>
+        combine(key, dl.key)
+    right match
+      case Empty() => withLeft
+      case Node(dr, _, _, _) =>
+        (combine(withLeft._1, dr.key)._1, combine(withLeft._2, dr.key)._2)
+  } ensuring (
+    // Size conditions
+    (min, max) =>
+      min.size == key.size && max.size == key.size
+      // Coord conditions
+      // && keyOrder(min, max) <= 0
+      // Root node condition (hard to prove since we need associativity)
+      // && keyOrder(min, key) <= 0 && keyOrder(key, max) <= 0
+  )
+
+  /** Returns a min and max combination of the two keys. */
+  def combine(a: Key, b: Key): (Key, Key) = {
+    require(a.size == b.size)
+    a.zip(b)
+      .map((a, b) => if a < b then (a, b) else (b, a))
+      .unzip
+  } ensuring (r => r._1.size == a.size && r._2.size == b.size)
 }
 
 /** k-th smallest element of `xs`, ordered by `comp`. */
@@ -197,4 +240,13 @@ extension [T](xs: List[T]) {
       pred
     ) && xs.size == ts.size + fs.size
   )
+}
+extension [A, B](xs: List[(A, B)]) {
+  def unzip: (List[A], List[B]) = {
+    xs match
+      case Cons((a, b), t) =>
+        val (as, bs) = t.unzip
+        (a :: as, b :: bs)
+      case Nil() => (Nil(), Nil())
+  } ensuring (r => r._1 == xs.map(_._1) && r._2 == xs.map(_._2))
 }
