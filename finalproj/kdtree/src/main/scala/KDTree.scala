@@ -1,5 +1,6 @@
 import stainless.lang._
 import stainless.collection._
+import scala.annotation.meta.companionMethod
 
 /** The indexing type, we just constraint them to `BigInt` for now.
   */
@@ -9,6 +10,10 @@ type Index = BigInt
   * list proofs :P
   */
 type Key = List[Index]
+
+case class IndexedKey(index: BigInt, key: List[Index]) {
+  require(0 <= index && index < key.length)
+}
 
 /** Compares two keys. Returns -1 if `a < b`, 1 if `a > b` and 0 if `a = b` */
 def keyOrder(a: Key, b: Key): Int = {
@@ -24,8 +29,8 @@ def keyOrder(a: Key, b: Key): Int = {
 
 def keyOrderAssoc(a: Key, b: Key, c: Key): Unit = {
   require(a.length == b.length && b.length == c.length)
-  require(keyOrder(a, b) <= 0)
-  require(keyOrder(b, c) <= 0)
+  require(keyOrder(a, b) < 0)
+  require(keyOrder(b, c) < 0)
   (a, b, c) match {
     case (Nil(), _, _) => {}
     case (Cons(ha, ta), Cons(hb, tb), Cons(hc, tc)) =>
@@ -33,15 +38,24 @@ def keyOrderAssoc(a: Key, b: Key, c: Key): Unit = {
       else if ha < hb then assert(ha < hc)
       else {}
   }
-} ensuring (keyOrder(a, c) <= 0)
+} ensuring (keyOrder(a, c) < 0)
 
-/** Compares two keys given the first major index. Returns -1 if `a < b`, 1 if
-  * `a > b` and 0 if `a = b`
-  */
-def keyOrderBy(index: BigInt, a: Key, b: Key): Int = {
-  val k = a.length
+def keyOrderAntisym(a: Key, b: Key): Unit = {
   require(a.length == b.length)
-  require(0 <= index && index < k)
+  require(keyOrder(a, b) < 0)
+  (a, b) match {
+    case (Cons(ha, ta), Cons(hb, tb)) =>
+      if ha == hb then keyOrderAntisym(ta, tb)
+      else {}
+  }
+} ensuring (keyOrder(b, a) > 0)
+
+// /** Compares two keys given the first major index. Returns -1 if `a < b`, 1 if
+//   * `a > b` and 0 if `a = b`
+//   */
+def keyOrderBy(index: BigInt, a: Key, b: Key): Int = {
+  require(a.length == b.length)
+  require(0 <= index && index < a.length)
   val head = keyOrder(a.drop(index), b.drop(index))
   if head != 0 then head else keyOrder(a.take(index), b.take(index))
 }
@@ -49,29 +63,58 @@ def keyOrderBy(index: BigInt, a: Key, b: Key): Int = {
 def keyOrderByEq(index: BigInt, a: Key, b: Key): Unit = {
   require(a.length == b.length)
   require(0 <= index && index < a.length)
+
+  def rotatedEq(a: Key, b: Key, r: BigInt): Unit = {
+    require(a.length == b.length)
+    require(0 <= r && r < a.length)
+    require(a.drop(r) == b.drop(r) && a.take(r) == b.take(r))
+    splitEq(a, r)
+    splitEq(b, r)
+  } ensuring (a == b)
+
+  def splitEq(a: Key, r: BigInt): Unit = {
+    require(0 <= r && r < a.length)
+    if r == 0 then {
+      assert(a.take(r) == Nil())
+      assert(a.drop(r) == a)
+    } else {
+      assert(a.take(r).head == a.head)
+      assert(a.take(r).tail == a.tail.take(r - 1))
+      splitEq(a.tail, r - 1)
+    }
+  } ensuring (a.take(r) ++ a.drop(r) == a)
+
   if keyOrderBy(index, a, b) == 0 then rotatedEq(a, b, index)
   else {}
 } ensuring (_ => if keyOrderBy(index, a, b) == 0 then a == b else a != b)
 
-def rotatedEq(a: Key, b: Key, r: BigInt): Unit = {
-  require(a.length == b.length)
-  require(0 <= r && r < a.length)
-  require(a.drop(r) == b.drop(r) && a.take(r) == b.take(r))
-  splitEq(a, r)
-  splitEq(b, r)
-} ensuring (a == b)
+def keyOrderByAssoc(index: BigInt, a: Key, b: Key, c: Key): Unit = {
+  require(a.length == b.length && b.length == c.length)
+  require(0 <= index && index < a.length)
+  require(keyOrderBy(index, a, b) < 0)
+  require(keyOrderBy(index, b, c) < 0)
+  if keyOrder(a.drop(index), b.drop(index)) == 0 then
+    if keyOrder(b.drop(index), c.drop(index)) == 0 then
+      assert(keyOrder(a.drop(index), c.drop(index)) == 0)
+      keyOrderAssoc(a.take(index), b.take(index), c.take(index))
+    else {}
+  else if keyOrder(b.drop(index), c.drop(index)) == 0 then {} else
+    keyOrderAssoc(a.drop(index), b.drop(index), c.drop(index))
+} ensuring (keyOrderBy(index, a, c) < 0)
 
-def splitEq(a: Key, r: BigInt): Unit = {
-  require(0 <= r && r < a.length)
-  if r == 0 then {
-    assert(a.take(r) == Nil())
-    assert(a.drop(r) == a)
-  } else {
-    assert(a.take(r).head == a.head)
-    assert(a.take(r).tail == a.tail.take(r - 1))
-    splitEq(a.tail, r - 1)
-  }
-} ensuring (a.take(r) ++ a.drop(r) == a)
+def keyOrderByAntisym(index: BigInt, a: Key, b: Key): Unit = {
+  require(a.length == b.length)
+  require(0 <= index && index < a.length)
+  require(keyOrderBy(index, a, b) < 0)
+  if keyOrder(a.drop(index), b.drop(index)) == 0 then
+    keyOrderAntisym(a.take(index), b.take(index))
+  else keyOrderAntisym(a.drop(index), b.drop(index))
+} ensuring (_ => keyOrderBy(index, b, a) > 0)
+
+def lessThan(a: Key, b: IndexedKey): Boolean =
+  a.length == b.key.length && keyOrderBy(b.index, a, b.key) < 0
+def greaterThan(a: Key, b: IndexedKey): Boolean =
+  a.length == b.key.length && keyOrderBy(b.index, a, b.key) > 0
 
 /** The data part of a node.
   */
@@ -88,6 +131,13 @@ sealed trait Tree[T] {
     case Node(data, index, left, right) => 1 + left.size + right.size
   } ensuring (_ >= 0)
 
+  def forall(cond: Data[T] => Boolean): Boolean = this match
+    case Empty() => true
+    case Node(data, index, left, right) =>
+      cond(data) && left.forall(cond) && right.forall(cond)
+
+  def forallKeys(cond: Key => Boolean) = forall(data => cond(data.key))
+
   /** Elements of the tree */
   def elements: List[T] = this match {
     case Empty() => List()
@@ -102,49 +152,97 @@ sealed trait Tree[T] {
         List(data.key) ++ left.keys ++ right.keys
   } ensuring (ks => ks.length == this.size)
 
-  /** Returns whether we can insert `data` into tree. */
-  def compatible(data: Data[T]) = this match
-    case Empty()                     => true
-    case Node(d, index, left, right) => d.key.length == data.key.length
+  def compatible(key: Key) = this match
+    case Empty()    => true
+    case n: Node[T] => n.key.length == key.length
 
-  def insertWithRotatingIndex(data: Data[T], from: BigInt): Node[T] =
+  /** Returns whether we can insert `data` into tree. */
+  def compatible(data: Data[T]): Boolean = compatible(data.key)
+
+  def insertWithRotatingIndex(data: Data[T], from: BigInt): Node[T] = {
     require(0 <= from && from < data.key.length)
     require(compatible(data))
+    insertWithRotatingIndex(data, from, List(), List())
+  } ensuring (r =>
+    // membership condition
+    r.keys.contains(data.key)
+      && r.elements.contains(data.value)
+      // size condition
+      && old(this).size <= r.size && r.size <= old(this).size + 1
+  )
+
+  def insertWithRotatingIndex(
+      data: Data[T],
+      from: BigInt,
+      ub: List[IndexedKey],
+      lb: List[IndexedKey]
+  ): Node[T] = {
+    require(0 <= from && from < data.key.length)
+    require(compatible(data))
+    require(ub.forall(lessThan(data.key, _)))
+    require(ub.forall(ik => forallKeys(k1 => lessThan(k1, ik))))
+    require(lb.forall(greaterThan(data.key, _)))
+    require(lb.forall(ik => forallKeys(k1 => greaterThan(k1, ik))))
+
     this match {
-      case Empty() => Node(data, from, Empty(), Empty())
-      case Node(d, index, left, right) =>
+      case Empty() =>
+        val r = Node(data, from, Empty(), Empty())
+        listLtNode(ub, r)
+        listGtNode(lb, r)
+        r
+      case n @ Node(d, index, left, right) =>
+        listLtCondTree(ub, n)
+        listGtCondTree(lb, n)
         val comp = keyOrderBy(index, data.key, d.key)
+        val ik = IndexedKey(index, d.key)
         if comp < 0 then
+          assert(left.forallKeys(k1 => lessThan(k1, ik)))
+          listLtCondCons(ik, ub, n.left)
+
           // left tree
-          Node(
-            d,
-            index,
-            left.insertWithRotatingIndex(data, nextIndex(data, index)),
-            right
+          val lt = left.insertWithRotatingIndex(
+            data,
+            nextIndex(data, index),
+            ik :: ub,
+            lb
           )
+          val r = Node(d, index, lt, right)
+          listLtNode(ub, r)
+          listGtNode(lb, r)
+          r
         else if comp > 0 then
+          assert(right.forallKeys(k1 => greaterThan(k1, ik)))
+          listGtCondCons(ik, lb, n.right)
+
           // right tree
-          Node(
-            d,
-            index,
-            left,
-            right.insertWithRotatingIndex(data, nextIndex(data, index))
+          val rt = right.insertWithRotatingIndex(
+            data,
+            nextIndex(data, index),
+            ub,
+            ik :: lb
           )
+          val r = Node(d, index, left, rt)
+          listLtNode(ub, r)
+          listGtNode(lb, r)
+          r
         else
           // override
-          Node(data, index, left, right)
-    } ensuring (r =>
-      // root condition
-      (old(this) match
-        case Empty()                      => r.data == data
-        case Node(d0, index, left, right) => r.data == d0 || r.data == data
-      )
-      // membership condition
-        && r.keys.contains(data.key)
-        && r.elements.contains(data.value)
-        // size condition
-        && old(this).size <= r.size && r.size <= old(this).size + 1
-    )
+          keyOrderByEq(index, data.key, d.key)
+          val r = Node(data, index, left, right)
+          listLtNode(ub, r)
+          listGtNode(lb, r)
+          r
+    }
+  }.ensuring(r =>
+    // membership condition
+    r.keys.contains(data.key)
+      && r.elements.contains(data.value)
+      // size condition
+      && old(this).size <= r.size && r.size <= old(this).size + 1
+      // bound conditions
+      && ub.forall(ik => r.forallKeys(k1 => lessThan(k1, ik)))
+      && lb.forall(ik => r.forallKeys(k1 => greaterThan(k1, ik)))
+  )
 }
 
 def nextIndex[T](data: Data[T], index: BigInt): BigInt = {
@@ -159,19 +257,9 @@ case class Empty[T]() extends Tree[T]
 case class Node[T](data: Data[T], index: BigInt, left: Tree[T], right: Tree[T])
     extends Tree[T] {
   require(0 <= index && index < data.key.length)
-  // left node must be smaller <
-  require(left match
-    case Empty() => true
-    case Node(dl, _, _, _) =>
-      dl.key.length == data.key.length &&
-      keyOrderBy(index, dl.key, data.key) < 0
-  )
-  // right node must be larger >
-  require(right match
-    case Empty() => true
-    case Node(dr, _, _, _) =>
-      dr.key.length == data.key.length &&
-      keyOrderBy(index, dr.key, data.key) > 0
+  require(
+    left.forallKeys(k => lessThan(k, IndexedKey(index, data.key))) &&
+      right.forallKeys(k => greaterThan(k, IndexedKey(index, data.key)))
   )
 
   val key = data.key
@@ -204,6 +292,33 @@ case class Node[T](data: Data[T], index: BigInt, left: Tree[T], right: Tree[T])
       .unzip
   } ensuring (r => r._1.size == a.size && r._2.size == b.size)
 }
+
+/** All keys in a non-empty tree has the same length */
+def allKeysSameLength[T](t: Node[T]): Unit = {
+  allKeysSameLengthAs(t, t.key)
+} ensuring (t.forallKeys(_.length == t.key.length))
+
+// All keys has the same length
+def allKeysSameLengthAs[T](t: Tree[T], key: Key): Unit = {
+  require(t.compatible(key))
+  t match
+    case Empty() => {}
+    case Node(data, index, left, right) => {
+      allKeysSameLengthAs(left, key)
+      allKeysSameLengthAs(right, key)
+    }
+} ensuring (t.forallKeys(_.length == key.length))
+
+/** Appending lists hold the same conditions */
+def appendCond[T](as: List[T], bs: List[T], cond: T => Boolean): Unit = {
+  require(as.forall(cond(_)) && bs.forall(cond(_)))
+
+  as match
+    case Nil() => {}
+    case Cons(h, t) =>
+      assert(cond(h))
+      appendCond(t, bs, cond)
+} ensuring (_ => (as ++ bs).forall(cond(_)))
 
 /** k-th smallest element of `xs`, ordered by `comp`. */
 def kthElement[T](
@@ -250,3 +365,105 @@ extension [A, B](xs: List[(A, B)]) {
       case Nil() => (Nil(), Nil())
   } ensuring (r => r._1 == xs.map(_._1) && r._2 == xs.map(_._2))
 }
+
+def listLtNode[T](xs: List[IndexedKey], t: Node[T]): Unit = {
+  require(xs.forall(ik => lessThan(t.key, ik)))
+  require(xs.forall(ik => t.left.forallKeys(k1 => lessThan(k1, ik))))
+  require(xs.forall(ik => t.right.forallKeys(k1 => lessThan(k1, ik))))
+  xs match
+    case Nil() => {}
+    case Cons(h, xs) =>
+      assert(t.forallKeys(k1 => lessThan(k1, h)))
+      listLtNode(xs, t)
+} ensuring (xs.forall(ik => t.forallKeys(k1 => lessThan(k1, ik))))
+
+def listLtCondTree[T](
+    xs: List[IndexedKey],
+    t: Node[T]
+): Unit = {
+  require(
+    xs.forall(ik => t.forallKeys(k1 => lessThan(k1, ik)))
+  )
+  xs match
+    case Nil() => {}
+    case Cons(xh, xt) =>
+      assert(t.forallKeys(k1 => lessThan(k1, xh)))
+      listLtCondTree(xt, t)
+} ensuring (_ =>
+  xs.forall(ik => t.left.forallKeys(k1 => lessThan(k1, ik)))
+    && xs.forall(ik => t.right.forallKeys(k1 => lessThan(k1, ik)))
+    && xs.forall(ik => lessThan(t.key, ik))
+)
+
+def listLtCondCons[T](
+    x: IndexedKey,
+    xs: List[IndexedKey],
+    t: Tree[T]
+): Unit = {
+  require(
+    xs.forall(ik => t.forallKeys(k1 => lessThan(k1, ik)))
+  )
+  require(t.forallKeys(k1 => lessThan(k1, x)))
+  t match
+    case Empty() => {}
+    case t @ Node(data, index, left, right) =>
+      listLtCondTree(xs, t)
+      listLtCondCons(x, xs, left)
+      listLtCondCons(x, xs, right)
+} ensuring (_ => (x :: xs).forall(ik => t.forallKeys(k1 => lessThan(k1, ik))))
+
+def listGtNode[T](xs: List[IndexedKey], t: Node[T]): Unit = {
+  require(xs.forall(ik => greaterThan(t.key, ik)))
+  require(xs.forall(ik => t.left.forallKeys(k1 => greaterThan(k1, ik))))
+  require(xs.forall(ik => t.right.forallKeys(k1 => greaterThan(k1, ik))))
+  xs match
+    case Nil() => {}
+    case Cons(h, xs) =>
+      assert(t.forallKeys(k1 => greaterThan(k1, h)))
+      listGtNode(xs, t)
+} ensuring (xs.forall(ik => t.forallKeys(k1 => greaterThan(k1, ik))))
+
+def listGtCondTree[T](
+    xs: List[IndexedKey],
+    t: Node[T]
+): Unit = {
+  require(
+    xs.forall(ik => t.forallKeys(k1 => greaterThan(k1, ik)))
+  )
+  xs match
+    case Nil() => {}
+    case Cons(xh, xt) =>
+      assert(t.forallKeys(k1 => greaterThan(k1, xh)))
+      listGtCondTree(xt, t)
+} ensuring (_ =>
+  xs.forall(ik => t.left.forallKeys(k1 => greaterThan(k1, ik)))
+    && xs.forall(ik => t.right.forallKeys(k1 => greaterThan(k1, ik)))
+    && xs.forall(ik => greaterThan(t.key, ik))
+)
+
+def listGtCondCons[T](
+    x: IndexedKey,
+    xs: List[IndexedKey],
+    t: Tree[T]
+): Unit = {
+  require(
+    xs.forall(ik => t.forallKeys(k1 => greaterThan(k1, ik)))
+  )
+  require(t.forallKeys(k1 => greaterThan(k1, x)))
+  t match
+    case Empty() => {}
+    case t @ Node(data, index, left, right) =>
+      listGtCondTree(xs, t)
+      listGtCondCons(x, xs, left)
+      listGtCondCons(x, xs, right)
+} ensuring (_ =>
+  (x :: xs).forall(ik => t.forallKeys(k1 => greaterThan(k1, ik)))
+)
+
+// extension [A](op: Option[A]) {
+
+//   /** Checks the condition if the Option is not empty. */
+//   def goodIfExists(cond: A => Boolean): Boolean = op match
+//     case None()  => true
+//     case Some(v) => cond(v)
+// }
