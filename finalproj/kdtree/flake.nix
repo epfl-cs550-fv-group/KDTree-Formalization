@@ -9,7 +9,7 @@
 
       stainless-lib = pkgs.stdenv.mkDerivation rec {
         name = "stainless-lib";
-        version = "0.9.6";
+        version = "0.9.7";
 
         nativeBuildInputs = with pkgs; [ unzip ];
 
@@ -18,7 +18,7 @@
         src = builtins.fetchurl {
           # We download the mac version here, but it doesn't really matter - we don't use we given z3.
           url = "https://github.com/epfl-lara/stainless/releases/download/v${version}/stainless-dotty-standalone-${version}-mac.zip";
-          sha256 = "sha256:1idaqh0rjlkn84fpbfg4viaiz9rcairm8k5wngwzv42rh8596mib";
+          sha256 = "1myzn3ilcn0sb70sd7jv8pzhwpr1y761jdzxkh9m05j599bvhmha";
         };
 
         installPhase = ''
