@@ -1,6 +1,7 @@
 import stainless.lang._
 import stainless.collection._
 import scala.annotation.meta.companionMethod
+import scala.quoted.* // imports Quotes, Expr
 
 /** The indexing type, we just constraint them to `BigInt` for now.
   */
