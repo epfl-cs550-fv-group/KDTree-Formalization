@@ -4,7 +4,9 @@ import scala.annotation.meta.companionMethod
 
 /** The data part of a node.
   */
-case class Data[T](key: List[Index], value: T)
+case class Data[T](key: List[Index], value: T) {
+  require(key.size > 0)
+}
 
 /** A node in the KD-Tree.
   */

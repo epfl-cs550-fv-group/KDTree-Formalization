@@ -1,105 +1,201 @@
 import stainless.lang._
 import stainless.collection._
 import scala.annotation.meta.companionMethod
+import scala.quoted.*
 
-// object Tree {
-//   def optimalConstruct[T](
-//       arr: Map[Key, T],
-//       ub: List[IndexedKey],
-//       lb: List[IndexedKey]
-//   ): Tree[T] = {
-//     require(ub.forall(ik => arr.keys.forall(lessThan(_, IndexedKey(ik)))))
-//     require(lb.forall(ik => arr.keys.forall(greaterThan(_, IndexedKey(ik)))))
-//     val keys = arr.keys
-//     keys match
-//       case Nil()         => Empty()
-//       case keys: Cons[T] => ???
+/** Given a list of data, construct the optimal height KD-Tree containing all
+  * elements of `arr`. `arr`'s keys must be unique.
+  */
+def optimalConstruct[T](
+    arr: List[Data[T]]
+): Tree[T] = {
+  require(arr.isSameSize)
+  require(arr.isUnique)
 
-//   } ensuring (r =>
-//     // size conditions
-//     r.size == arr.keys.size
-//     // bound conditions
-//       && ub.forall(ik => r.forallKeys(lessThan(_, IndexedKey(ik))))
-//       && lb.forall(ik => r.forallKeys(greaterThan(_, IndexedKey(ik))))
-//   )
-// }
+  arr match
+    case Nil() => Empty()
+    case arr @ Cons(h, t) =>
+      val key = h.key
+      arr.headSameIsSame(key)
+      // prove conditions 4 & 5 holds for empty list
+      def recurse(xs: List[Data[T]]): Unit = {
+        xs match
+          case Cons(_, t) => recurse(t)
+          case Nil()      => {}
+      } ensuring (
+        xs.forall(d => List().forall(ik => lessThan(d.key, ik)))
+          && xs.forall(d => List().forall(ik => greaterThan(d.key, ik)))
+      )
+      recurse(arr)
 
-extension [T](xs: List[T]) {
-  def containsList(ys: List[T]): Boolean = ys match
-    case Cons(h, t) => xs.contains(h) && xs.containsList(t)
-    case Nil()      => true
+      optimalConstruct(arr, 0, key, List(), List())
+} ensuring (r =>
+  // size conditions
+  r.size == arr.size
+  // elem conditions
+    && arr.forall(d => r.query(d.key) == Some[T](d.value))
+)
+def optimalConstruct[T](
+    arr: List[Data[T]],
+    index: BigInt,
+    key: Key,
+    ub: List[IndexedKey],
+    lb: List[IndexedKey]
+): Tree[T] = {
+  require(0 <= index && index < key.length)
+  require(arr.isSameSizeAs(key))
+  require(arr.isUnique)
+  require(arr.forall(d => ub.forall(ik => lessThan(d.key, ik))))
+  require(arr.forall(d => lb.forall(ik => greaterThan(d.key, ik))))
+  decreases(arr.size)
 
-  def filterContains(cond: T => Boolean): Unit = {
-    def containsListAppend[A](x: A, l1: List[A], l2: List[A]): Unit = {
-      require(l1.containsList(l2))
-      l2 match
-        case Cons(h, t) => containsListAppend(x, l1, t)
-        case Nil()      => {}
-    } ensuring ((x :: l1).containsList(l2))
-    xs match
+  arr match
+    case Nil() => Empty()
+    case arr @ Cons(_, _) =>
+      val size = arr.size
+      val k = size / 2
+
+      val (kth, less, greater) = arr.kthElementByIndex(index, k, key)
+      // Trickle down conditions 4 & 5 to less & greater
+      arr.containsListExtractCond(
+        less,
+        d => ub.forall(ik => lessThan(d.key, ik))
+      )
+      arr.containsListExtractCond(
+        less,
+        d => lb.forall(ik => greaterThan(d.key, ik))
+      )
+      arr.containsListExtractCond(
+        greater,
+        d => ub.forall(ik => lessThan(d.key, ik))
+      )
+      arr.containsListExtractCond(
+        greater,
+        d => lb.forall(ik => greaterThan(d.key, ik))
+      )
+
+      arr.listExtractForAll(kth, d => ub.forall(ik => lessThan(d.key, ik)))
+      arr.listExtractForAll(kth, d => lb.forall(ik => greaterThan(d.key, ik)))
+
+      val ik = IndexedKey(index, kth.key)
+
+      // extends less with ik
+      less.conditionListAppendLt(ik, ub)
+      greater.conditionListAppendGt(ik, lb)
+
+      val tl =
+        optimalConstruct(less, nextIndex(kth, index), key, ik :: ub, lb)
+      val tr =
+        optimalConstruct(greater, nextIndex(kth, index), key, ub, ik :: lb)
+
+      // extract extended conditions
+      tl.listExtractLt(ik, ub)
+      tr.listExtractGt(ik, lb)
+
+      val t = Node(kth, index, tl, tr)
+
+      t.climbUp(less)
+      t.climbUp(greater)
+      assert(keyOrderBy(index, kth.key, kth.key) == 0)
+      assert(t.query(kth.key) == Some[T](kth.value))
+
+      tupCond(less, kth, greater, d => t.query(d.key) == Some[T](d.value))
+      tup(less, kth, greater).containsListExtractCond(
+        arr,
+        d => t.query(d.key) == Some[T](d.value)
+      )
+
+      t
+} ensuring (r =>
+  // size conditions
+  r.size == arr.size
+  // elem conditions
+    && arr.forall(d => r.query(d.key) == Some[T](d.value))
+    // bound conditions
+    && r.forallKeys(k => ub.forall(lessThan(k, _)))
+    && r.forallKeys(k => lb.forall(greaterThan(k, _)))
+)
+
+extension [T](n: Node[T]) {
+  def climbUp(ds: List[Data[T]]): Unit = {
+    require(
+      ds.forall(d => n.left.query(d.key) == Some[T](d.value))
+        || ds.forall(d => n.right.query(d.key) == Some[T](d.value))
+    )
+    ds match
+      case Nil() => {}
       case Cons(h, t) => {
-        if cond(h) then
-          assert(xs.filter(cond) == h :: t.filter(cond))
-          assert(xs.filterNot(cond) == t.filterNot(cond))
-          t.filterContains(cond)
-          containsListAppend(h, t, t.filter(cond))
-          containsListAppend(h, t, t.filterNot(cond))
+        if ds.forall(d => n.left.query(d.key) == Some[T](d.value)) then
+          climbUp(h)
+          climbUp(t)
         else
-          assert(xs.filter(cond) == t.filter(cond))
-          assert(xs.filterNot(cond) == h :: t.filterNot(cond))
-          t.filterContains(cond)
-          containsListAppend(h, t, t.filter(cond))
-          containsListAppend(h, t, t.filterNot(cond))
+          climbUp(h)
+          climbUp(t)
       }
-      case Nil() => {}
-  } ensuring (
-    xs.containsList(xs.filter(cond))
-      && xs.containsList(xs.filterNot(cond))
-  )
+  } ensuring (ds.forall(d => n.query(d.key) == Some[T](d.value)))
+  def climbUp(d: Data[T]): Unit = {
+    require(
+      n.left.query(d.key) == Some[T](d.value)
+        || n.right.query(d.key) == Some[T](d.value)
+    )
+    if n.left.query(d.key) == Some[T](d.value) then
+      extractForAll(n.left, d.key, lessThan(_, n.indexedKey))
+      keyOrderByEq(n.index, d.key, n.key)
+    else
+      extractForAll(n.right, d.key, greaterThan(_, n.indexedKey))
+      keyOrderByEq(n.index, n.key, d.key)
+  } ensuring (n.query(d.key) == Some[T](d.value))
+}
 
-  def containsListExtractCond(ys: List[T], cond: T => Boolean): Unit = {
-    require(xs.containsList(ys))
-    require(xs.forall(cond))
-    ys match
-      case Cons(h, t) =>
-        xs.listExtractForAll(h, cond)
-        containsListExtractCond(t, cond)
-      case Nil() => {}
-  } ensuring (ys.forall(cond))
+extension [T](t: Tree[T]) {
+  def listExtractLt(y: IndexedKey, ys: List[IndexedKey]): Unit = {
+    require(t.forallKeys(k => (y :: ys).forall(lessThan(k, _))))
+    t match
+      case Empty() => {}
+      case Node(data, index, left, right) => {
+        left.listExtractLt(y, ys)
+        right.listExtractLt(y, ys)
+      }
+  } ensuring (t.forallKeys(lessThan(_, y))
+    && t.forallKeys(k => ys.forall(lessThan(k, _))))
+  def listExtractGt(y: IndexedKey, ys: List[IndexedKey]): Unit = {
+    require(t.forallKeys(k => (y :: ys).forall(greaterThan(k, _))))
+    t match
+      case Empty() => {}
+      case Node(data, index, left, right) => {
+        left.listExtractGt(y, ys)
+        right.listExtractGt(y, ys)
+      }
+  } ensuring (t.forallKeys(greaterThan(_, y))
+    && t.forallKeys(k => ys.forall(greaterThan(k, _))))
+}
 
-  def containsListAppend(l1: List[T], l2: List[T]): Unit = {
-    require(containsList(l1))
-    require(containsList(l2))
-    l1 match
-      case Cons(h, t) => containsListAppend(t, l2)
-      case Nil()      => {}
-  } ensuring (containsList(l1 ++ l2))
-
-  def containsListAssoc(l1: List[T], l2: List[T]): Unit = {
-    require(containsList(l1))
-    require(l1.containsList(l2))
-    def oneElem(l1: List[T], x: T): Unit = {
-      require(containsList(l1))
-      require(l1.contains(x))
-      l1 match
-        case Cons(h, t) => if h == x then {} else oneElem(t, x)
-        case Nil()      => {}
-    } ensuring (xs.contains(x))
-    l2 match
-      case Cons(h, t) =>
-        oneElem(l1, h)
-        containsListAssoc(l1, t)
-      case Nil() => {}
-  } ensuring (containsList(l2))
-
-  def listExtractForAll(elem: T, cond: T => Boolean): Unit = {
-    require(xs.forall(cond))
-    require(xs.contains(elem))
+extension [T](xs: List[Data[T]]) {
+  def conditionListAppendLt(
+      y: IndexedKey,
+      ys: List[IndexedKey]
+  ): Unit = {
+    require(xs.forall(x => ys.forall(lessThan(x.key, _))))
+    require(xs.forall(d => lessThan(d.key, y)))
     xs match
       case Nil() => {}
       case Cons(h, t) =>
-        if h != elem then t.listExtractForAll(elem, cond)
-  } ensuring (cond(elem))
+        assert((y :: ys).forall(lessThan(h.key, _)))
+        t.conditionListAppendLt(y, ys)
+  } ensuring (xs.forall(x => (y :: ys).forall(lessThan(x.key, _))))
+
+  def conditionListAppendGt(
+      y: IndexedKey,
+      ys: List[IndexedKey]
+  ): Unit = {
+    require(xs.forall(x => ys.forall(greaterThan(x.key, _))))
+    require(xs.forall(d => greaterThan(d.key, y)))
+    xs match
+      case Nil() => {}
+      case Cons(h, t) =>
+        assert((y :: ys).forall(greaterThan(h.key, _)))
+        t.conditionListAppendGt(y, ys)
+  } ensuring (xs.forall(x => (y :: ys).forall(greaterThan(x.key, _))))
 }
 
 extension [T](xs: List[Data[T]]) {
@@ -152,6 +248,7 @@ extension [T](xs: List[Data[T]]) {
       // sublist conditions
       && xs.containsList(less)
       && xs.containsList(greater)
+      && tup(less, kth, greater).containsList(xs)
   )
   def kthElementByIndex(
       index: Index,
@@ -180,6 +277,7 @@ extension [T](xs: List[Data[T]]) {
     xs.filterContains(d =>
       greaterThan(d.key, IndexedKey(index, h.key))
     ) // moreThanH is sublist
+    t.extendTupContains(lessThanH, h, moreThanH) // ltH ++ h ++ mtH contains xs
 
     if lessThanH.size == k then (h, lessThanH, moreThanH)
     else if lessThanH.size > k then
@@ -202,6 +300,7 @@ extension [T](xs: List[Data[T]]) {
         moreThanH,
         d => greaterThan(d.key, IndexedKey(index, kth.key))
       )
+      xs.regroupLeftContains(less, kth, greater0, lessThanH, h, moreThanH)
       xs.containsListAssoc(lessThanH, less)
       xs.containsListAssoc(lessThanH, greater0)
       xs.containsListAppend(greater0, h :: moreThanH)
@@ -227,6 +326,7 @@ extension [T](xs: List[Data[T]]) {
         less0,
         d => lessThan(d.key, IndexedKey(index, kth.key))
       )
+      xs.regroupRightContains(less0, kth, greater, lessThanH, h, moreThanH)
       xs.containsListAssoc(moreThanH, less0)
       xs.containsListAssoc(moreThanH, greater)
       xs.containsListAppend(lessThanH, h :: less0)
@@ -246,6 +346,7 @@ extension [T](xs: List[Data[T]]) {
       // sublist conditions
       && xs.containsList(less)
       && xs.containsList(greater)
+      && tup(less, kth, greater).containsList(xs)
   )
 
   def strongPartitionByOrder(
@@ -266,6 +367,7 @@ extension [T](xs: List[Data[T]]) {
       d => lessThan(d.key, IndexedKey(index, key))
     )
     filterNotLessThan(index, key)
+    xs.partitionContainsList(d => lessThan(d.key, IndexedKey(index, key)))
     val x = xs.strongPartition(d => lessThan(d.key, IndexedKey(index, key)))._2
     x.antisymm(index, key)
 
@@ -278,6 +380,7 @@ extension [T](xs: List[Data[T]]) {
       && l.length + r.length == xs.length
       && l.forall(d => lessThan(d.key, IndexedKey(index, key)))
       && r.forall(d => greaterThan(d.key, IndexedKey(index, key)))
+      && (l ++ r).containsList(xs)
   )
 
   def filterNotLessThan(index: BigInt, key: Key): Unit = {
@@ -504,3 +607,228 @@ def notContainsAppend[T](
       notContainsAppend(key, t, l2)
     }
 } ensuring (!(l1 ++ l2).containsKey(key))
+extension [T](xs: List[T]) {
+  def containsList(ys: List[T]): Boolean = ys match
+    case Cons(h, t) => xs.contains(h) && xs.containsList(t)
+    case Nil()      => true
+
+  def filterContains(cond: T => Boolean): Unit = {
+    def containsListAppend[A](x: A, l1: List[A], l2: List[A]): Unit = {
+      require(l1.containsList(l2))
+      l2 match
+        case Cons(h, t) => containsListAppend(x, l1, t)
+        case Nil()      => {}
+    } ensuring ((x :: l1).containsList(l2))
+    xs match
+      case Cons(h, t) => {
+        if cond(h) then
+          assert(xs.filter(cond) == h :: t.filter(cond))
+          assert(xs.filterNot(cond) == t.filterNot(cond))
+          t.filterContains(cond)
+          containsListAppend(h, t, t.filter(cond))
+          containsListAppend(h, t, t.filterNot(cond))
+        else
+          assert(xs.filter(cond) == t.filter(cond))
+          assert(xs.filterNot(cond) == h :: t.filterNot(cond))
+          t.filterContains(cond)
+          containsListAppend(h, t, t.filter(cond))
+          containsListAppend(h, t, t.filterNot(cond))
+      }
+      case Nil() => {}
+  } ensuring (
+    xs.containsList(xs.filter(cond))
+      && xs.containsList(xs.filterNot(cond))
+  )
+
+  def extendTupContains(l: List[T], x: T, r: List[T]): Unit = {
+    require((l ++ r).containsList(xs))
+    def containsAppendX(l: List[T]): Unit = {
+      l match
+        case Cons(h, t) => if h == x then {} else containsAppendX(t)
+        case Nil()      => {}
+    } ensuring ((l ++ (x :: r)).contains(x))
+    def containsOneOf(l: List[T], v: T): Unit = {
+      require((l ++ r).contains(v))
+      l match
+        case Cons(h, t) => if h == v then {} else containsOneOf(t, v)
+        case Nil()      => {}
+    } ensuring (l.contains(v) || r.contains(v))
+    def containsOneOfR(l: List[T], r: List[T], v: T): Unit = {
+      require(l.contains(v) || r.contains(v))
+      l match
+        case Nil()      => {}
+        case Cons(h, t) => if h == v then {} else containsOneOfR(t, r, v)
+    } ensuring ((l ++ r).contains(v))
+    def containsAppendXs(xs: List[T]): Unit = {
+      require((l ++ r).containsList(xs))
+      xs match
+        case Cons(h, t) =>
+          containsOneOf(l, h)
+          if l.contains(h) then containsOneOfR(l, x :: r, h)
+          else containsOneOfR(l, x :: r, h)
+          containsAppendXs(t)
+        case Nil() => {}
+    } ensuring ((l ++ (x :: r)).containsList(xs))
+    containsAppendX(l)
+    containsAppendXs(xs)
+  } ensuring ((l ++ (x :: r)).containsList(x :: xs))
+
+  def extendTupContains(x: T, l: List[T], r: List[T]): Unit = {
+    require((l ++ r).containsList(xs))
+    def recurse(xs: List[T]): Unit = {
+      require((l ++ r).containsList(xs))
+      xs match
+        case Nil() => {}
+        case Cons(h, t) =>
+          assert((x :: (l ++ r)).contains(h))
+          recurse(t)
+    } ensuring (((x :: l) ++ r).containsList(xs))
+    recurse(xs)
+  } ensuring (((x :: l) ++ r).containsList(x :: xs))
+
+  def regroupLeftContains(
+      as: List[T],
+      b: T,
+      cs: List[T],
+      ds: List[T],
+      e: T,
+      fs: List[T]
+  ): Unit = {
+    require(tup(as, b, cs).containsList(ds))
+    require(tup(ds, e, fs).containsList(xs))
+    xs match
+      case Nil() => {}
+      case Cons(v, t) =>
+        t.regroupLeftContains(as, b, cs, ds, e, fs)
+        openTup(ds, e, fs, v)
+        if ds.contains(v) then
+          tup(as, b, cs).containsListAssocElem(ds, v)
+          openTup(as, b, cs, v)
+          if cs.contains(v) then openTupR(cs, e, fs, v)
+          openTupR(as, b, tup(cs, e, fs), v)
+        else
+          openTupR(cs, e, fs, v)
+          openTupR(as, b, tup(cs, e, fs), v)
+  } ensuring (tup(as, b, tup(cs, e, fs)).containsList(xs))
+
+  def regroupRightContains(
+      as: List[T],
+      b: T,
+      cs: List[T],
+      ds: List[T],
+      e: T,
+      fs: List[T]
+  ): Unit = {
+    require(tup(as, b, cs).containsList(fs))
+    require(tup(ds, e, fs).containsList(xs))
+    xs match
+      case Nil() => {}
+      case Cons(v, t) =>
+        t.regroupRightContains(as, b, cs, ds, e, fs)
+        openTup(ds, e, fs, v)
+        if fs.contains(v) then
+          tup(as, b, cs).containsListAssocElem(fs, v)
+          openTup(as, b, cs, v)
+          if as.contains(v) then openTupR(ds, e, as, v)
+          openTupR(tup(ds, e, as), b, cs, v)
+        else
+          openTupR(ds, e, as, v)
+          openTupR(tup(ds, e, as), b, cs, v)
+  } ensuring (tup(tup(ds, e, as), b, cs).containsList(xs))
+
+  def partitionContainsList(cond: T => Boolean): Unit = {
+    xs match
+      case Nil() => {}
+      case Cons(h, t) =>
+        t.partitionContainsList(cond)
+        val (tl, tr) = t.strongPartition(cond)
+        if cond(h) then {
+          t.extendTupContains(h, tl, tr)
+        } else {
+          t.extendTupContains(tl, h, tr)
+        }
+  } ensuring ({
+    val (l, r) = xs.strongPartition(cond)
+    (l ++ r).containsList(xs)
+  })
+
+  def containsListExtractCond(ys: List[T], cond: T => Boolean): Unit = {
+    require(xs.containsList(ys))
+    require(xs.forall(cond))
+    ys match
+      case Cons(h, t) =>
+        xs.listExtractForAll(h, cond)
+        containsListExtractCond(t, cond)
+      case Nil() => {}
+  } ensuring (ys.forall(cond))
+
+  def containsListAppend(l1: List[T], l2: List[T]): Unit = {
+    require(containsList(l1))
+    require(containsList(l2))
+    l1 match
+      case Cons(h, t) => containsListAppend(t, l2)
+      case Nil()      => {}
+  } ensuring (containsList(l1 ++ l2))
+
+  def containsListAssoc(l1: List[T], l2: List[T]): Unit = {
+    require(containsList(l1))
+    require(l1.containsList(l2))
+    def oneElem(l1: List[T], x: T): Unit = {
+      require(containsList(l1))
+      require(l1.contains(x))
+      l1 match
+        case Cons(h, t) => if h == x then {} else oneElem(t, x)
+        case Nil()      => {}
+    } ensuring (xs.contains(x))
+    l2 match
+      case Cons(h, t) =>
+        oneElem(l1, h)
+        containsListAssoc(l1, t)
+      case Nil() => {}
+  } ensuring (containsList(l2))
+
+  def containsListAssocElem(l1: List[T], v: T): Unit = {
+    require(containsList(l1))
+    require(l1.contains(v))
+    containsListAssoc(l1, List(v))
+  } ensuring (xs.contains(v))
+
+  def listExtractForAll(elem: T, cond: T => Boolean): Unit = {
+    require(xs.forall(cond))
+    require(xs.contains(elem))
+    xs match
+      case Nil() => {}
+      case Cons(h, t) =>
+        if h != elem then t.listExtractForAll(elem, cond)
+  } ensuring (cond(elem))
+}
+
+inline def tup[T](as: List[T], b: T, cs: List[T]) = as ++ (b :: cs)
+
+def openTup[T](as: List[T], b: T, cs: List[T], v: T): Unit = {
+  require(tup(as, b, cs).contains(v))
+  as match
+    case Nil()      => if b == v then {} else {}
+    case Cons(h, t) => if h == v then {} else openTup(t, b, cs, v)
+} ensuring (as.contains(v) || b == v || cs.contains(v))
+
+def openTupR[T](as: List[T], b: T, cs: List[T], v: T): Unit = {
+  require(as.contains(v) || b == v || cs.contains(v))
+  if as.contains(v) then
+    as match
+      case Cons(h, t) => if h == v then {} else openTupR(t, b, cs, v)
+      case Nil()      => {}
+  else
+    as match
+      case Cons(_, t) => openTupR(t, b, cs, v)
+      case Nil()      => if b == v then {} else {}
+} ensuring (tup(as, b, cs).contains(v))
+
+def tupCond[T](as: List[T], b: T, cs: List[T], cond: T => Boolean): Unit = {
+  require(as.forall(cond))
+  require(cond(b))
+  require(cs.forall(cond))
+  as match
+    case Cons(_, t) => tupCond(t, b, cs, cond)
+    case Nil()      => {}
+} ensuring (tup(as, b, cs).forall(cond))
