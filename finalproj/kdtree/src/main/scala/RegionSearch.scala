@@ -71,13 +71,10 @@ extension [T](tree: Tree[T]) {
 
         // IH: rLeft._1.isEmpty || !rLeft._1.isEmpty && rLeft._1.forall(d => inRegionWithPrecond(d.key, kueb, kleb))
         // IH: rRight._1.isEmpty || !rRight._1.isEmpty && rRight._1.forall(d => inRegionWithPrecond(d.key, kueb, kleb))
-        val v0 = listConcatCond(rLeft._1, rRoot._1, d => inRegionWithPrecond(d.key, kueb, kleb))
-        val v1 = listConcatCond(v0,      rRight._1, d => inRegionWithPrecond(d.key, kueb, kleb))
-        assert(r._1 == v1)
-
-        val v2 = listConcatCond(rLeft._2, rRoot._2, d => notInRegionWithPrecond(d.key, kueb, kleb))
-        val v3 = listConcatCond(v2,      rRight._2, d => notInRegionWithPrecond(d.key, kueb, kleb))
-        assert(r._2 == v3)
+        val v0 = listConcatCond3(rLeft._1, rRoot._1, rRight._1, d => inRegionWithPrecond(d.key, kueb, kleb))
+        assert(r._1 == v0)
+        val v1 = listConcatCond3(rLeft._2, rRoot._2, rRight._2, d => notInRegionWithPrecond(d.key, kueb, kleb))
+        assert(r._2 == v1)
 
         r
       }
@@ -166,6 +163,16 @@ def listConcatCond[T](l0: List[T], l1: List[T], cond: T => Boolean): List[T] = {
   }
 } ensuring(r => (r == l0 ++ l1) && (r.isEmpty || (!r.isEmpty && r.forall(cond))))
 
+def listConcatCond3[T](l0: List[T], l1: List[T], l2: List[T], cond: T => Boolean): List[T] = {
+  require(l0.isEmpty || (!l0.isEmpty && l0.forall(cond)))
+  require(l1.isEmpty || (!l1.isEmpty && l1.forall(cond)))
+  require(l2.isEmpty || (!l2.isEmpty && l2.forall(cond)))
+
+  val v0 = listConcatCond(l0, l1, cond)
+  val v1 = listConcatCond(v0, l2, cond)
+  assert(v1 == l0 ++ l1 ++ l2)
+  v1
+} 
 extension [T](n: Node[T]) {
 
   def inRegionListLeftEmpty(kueb: Key, kleb: Key): Unit = {
