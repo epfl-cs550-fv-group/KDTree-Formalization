@@ -32,7 +32,9 @@ def optimalConstruct[T](
 } ensuring (r =>
   // size conditions
   r.size == arr.size
-  // elem conditions
+  // optimal conditions
+    && pow2(depth(r)) <= 2 * arr.size + 1
+    // elem conditions
     && arr.forall(d => r.query(d.key) == Some[T](d.value))
 )
 def optimalConstruct[T](
@@ -43,6 +45,7 @@ def optimalConstruct[T](
     lb: List[IndexedKey]
 ): Tree[T] = {
   require(0 <= index && index < key.length)
+  require(arr.size >= 1)
   require(arr.isSameSizeAs(key))
   require(arr.isUnique)
   require(arr.forall(d => ub.forall(ik => lessThan(d.key, ik))))
@@ -84,9 +87,11 @@ def optimalConstruct[T](
       greater.conditionListAppendGt(ik, lb)
 
       val tl =
-        optimalConstruct(less, nextIndex(kth, index), key, ik :: ub, lb)
+        if less.size == 0 then Empty()
+        else optimalConstruct(less, nextIndex(kth, index), key, ik :: ub, lb)
       val tr =
-        optimalConstruct(greater, nextIndex(kth, index), key, ub, ik :: lb)
+        if greater.size == 0 then Empty()
+        else optimalConstruct(greater, nextIndex(kth, index), key, ub, ik :: lb)
 
       // extract extended conditions
       tl.listExtractLt(ik, ub)
@@ -94,10 +99,29 @@ def optimalConstruct[T](
 
       val t = Node(kth, index, tl, tr)
 
+      pow2Max(depth(tl), depth(tr))
+      assert(pow2(depth(t)) == 2 * max(pow2(depth(tl)), pow2(depth(tr))))
+      if less.size == 0 then assert(size == 1)
+      else if greater.size == 0 then
+        assert(size <= 2)
+        if (size == 1) then {} else {
+          assert(less.size == 1)
+          assert(depth(tl) == 1)
+          assert(depth(t) == 2)
+        }
+      else
+        maxBound(pow2(depth(tl)), 2 * k, pow2(depth(tr)), 2 * (size - k - 1))
+        assert(max(2 * k, 2 * (size - k - 1)) <= size)
+        assert(2 * max(pow2(depth(tl)), pow2(depth(tr))) <= 2 * size)
+        assert(pow2(depth(t)) <= 2 * arr.size)
+
       t.climbUp(less)
       t.climbUp(greater)
       assert(keyOrderBy(index, kth.key, kth.key) == 0)
       assert(t.query(kth.key) == Some[T](kth.value))
+
+      t.climbUpLt(ub)
+      t.climbUpGt(lb)
 
       tupCond(less, kth, greater, d => t.query(d.key) == Some[T](d.value))
       tup(less, kth, greater).containsListExtractCond(
@@ -109,12 +133,46 @@ def optimalConstruct[T](
 } ensuring (r =>
   // size conditions
   r.size == arr.size
-  // elem conditions
+  // optimal condition
+    && pow2(depth(r)) <= 2 * arr.size
+    // elem conditions
     && arr.forall(d => r.query(d.key) == Some[T](d.value))
     // bound conditions
     && r.forallKeys(k => ub.forall(lessThan(k, _)))
     && r.forallKeys(k => lb.forall(greaterThan(k, _)))
 )
+
+/** Depth of a tree. */
+def depth[T](t: Tree[T]): BigInt = {
+  t match
+    case Empty() => BigInt(0)
+    case Node(data, index, left, right) =>
+      1 + max(depth(left), depth(right))
+} ensuring (_ >= 0)
+
+def max(a: BigInt, b: BigInt) = {
+  if a < b then b else a
+} ensuring (r => r >= a && r >= b && (r == a || r == b))
+
+def maxBound(a: BigInt, am: BigInt, b: BigInt, bm: BigInt) = {
+  require(a <= am)
+  require(b <= bm)
+  if a < b then {} else {}
+} ensuring (max(a, b) <= max(am, bm))
+
+def pow2(n: BigInt): BigInt = {
+  require(n >= 0)
+  if n == 0 then BigInt(1) else 2 * pow2(n - 1)
+} ensuring (_ >= 1)
+
+def pow2Max(a: BigInt, b: BigInt): Unit = {
+  require(a >= 0 && b >= 0)
+  decreases(a)
+  if a == 0 || b == 0 then {} else
+    assert(max(a, b) == 1 + max(a - 1, b - 1))
+    pow2Max(a - 1, b - 1)
+    assert(max(pow2(a), pow2(b)) == 2 * max(pow2(a - 1), pow2(b - 1)))
+} ensuring (pow2(max(a, b)) == max(pow2(a), pow2(b)))
 
 extension [T](n: Node[T]) {
   def climbUp(ds: List[Data[T]]): Unit = {
@@ -145,6 +203,16 @@ extension [T](n: Node[T]) {
       extractForAll(n.right, d.key, greaterThan(_, n.indexedKey))
       keyOrderByEq(n.index, n.key, d.key)
   } ensuring (n.query(d.key) == Some[T](d.value))
+  def climbUpLt(ys: List[IndexedKey]): Unit = {
+    require(n.left.forallKeys(k => ys.forall(lessThan(k, _))))
+    require(n.right.forallKeys(k => ys.forall(lessThan(k, _))))
+    require(ys.forall(lessThan(n.key, _)))
+  } ensuring (n.forallKeys(k => ys.forall(lessThan(k, _))))
+  def climbUpGt(ys: List[IndexedKey]): Unit = {
+    require(n.left.forallKeys(k => ys.forall(greaterThan(k, _))))
+    require(n.right.forallKeys(k => ys.forall(greaterThan(k, _))))
+    require(ys.forall(greaterThan(n.key, _)))
+  } ensuring (n.forallKeys(k => ys.forall(greaterThan(k, _))))
 }
 
 extension [T](t: Tree[T]) {
