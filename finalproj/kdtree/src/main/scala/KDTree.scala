@@ -392,9 +392,8 @@ sealed trait Tree[T] {
         else right.get(key)
   }
 
-  def tryGet(key: Key): Option[T] = {
+  def tryGet(key: Key): Option[T] = 
     if contains(key) then Some(get(key)) else None[T]()
-  }
 
   /** Elements of the tree */
   def elements: List[T] = this match {
@@ -425,13 +424,6 @@ sealed trait Tree[T] {
   /** Returns whether we can insert `data` into tree. */
   def compatible(data: Data[T]): Boolean = compatible(data.key)
 
-  def equal(that: Tree[T]): Boolean = 
-    this.keys.forall(k => equalCond(this, that, k))
-
-  /** this.equal(that) except the node of excKey */
-  def equalExcept(that: Tree[T], excKey: Key): Boolean = 
-    this.keys.forall(k => equalExceptCond(this, that, excKey, k))
-
   def insertWithRotatingIndex(data: Data[T], from: BigInt): Node[T] = {
     require(0 <= from && from < data.key.length)
     require(compatible(data))
@@ -443,7 +435,7 @@ sealed trait Tree[T] {
       // size condition
       && old(this).size <= r.size && r.size <= old(this).size + 1
       // consistency condition
-      && old(this).equalExcept(r, data.key)
+      && equalExcept(old(this), r, data.key)
   )
 
   def insertWithRotatingIndex(
@@ -464,7 +456,7 @@ sealed trait Tree[T] {
         val r = Node(data, from, Empty(), Empty())
         listLtNode(ub, r)
         listGtNode(lb, r)
-        assert(this.equalExcept(r, data.key))
+        assert(equalExcept(this, r, data.key))
         r
       case n @ Node(d, index, left, right) =>
         listLtCondTree(ub, n)
@@ -523,7 +515,7 @@ sealed trait Tree[T] {
       && ub.forall(ik => r.forallKeys(k1 => lessThan(k1, ik)))
       && lb.forall(ik => r.forallKeys(k1 => greaterThan(k1, ik)))
       // consistency condition
-      && old(this).equalExcept(r, data.key)
+      && equalExcept(old(this), r, data.key)
   )
 
   /** Erases a key from the tree. Returns the old tree if the key does not
@@ -646,7 +638,7 @@ sealed trait Tree[T] {
   )
 }
 
-// Start of equalExcept condition definition. 
+// Start of equalExcept condition definition and lemmas. 
 
 def equalCond[T](a: Tree[T], b: Tree[T], key: Key): Boolean = 
   a.tryGet(key) == b.tryGet(key)
@@ -654,7 +646,28 @@ def equalCond[T](a: Tree[T], b: Tree[T], key: Key): Boolean =
 def equalExceptCond[T](a: Tree[T], b: Tree[T], excKey: Key, key: Key): Boolean = 
   if key != excKey then equalCond(a, b, key) else true
 
-// End of equalExcept condition definition. 
+def equalExcept[T](a: Tree[T], b: Tree[T], excKey: Key): Boolean = 
+  val cond = (k: Key) => equalExceptCond(a, b, excKey, k)
+  a.keys.forall(cond) && b.keys.forall(cond)
+
+def forallEqualExceptSym[T](a: Tree[T], b: Tree[T], excKey: Key, ks: List[Key]): Unit = {
+  require(ks.forall(k => equalExceptCond(a, b, excKey, k)))
+    ks match {
+      case Nil() => 
+      case Cons(h, t) => 
+        assert(equalExceptCond(a, b, excKey, h))
+        assert(equalExceptCond(b, a, excKey, h))
+        forallEqualExceptSym(a, b, excKey, t)
+    }
+} ensuring (ks.forall(k => equalExceptCond(b, a, excKey, k)))
+
+def equalExceptSym[T](a: Tree[T], b: Tree[T], excKey: Key): Unit = {
+  require(equalExcept(a, b, excKey))
+  forallEqualExceptSym(a, b, excKey, a.keys)
+  forallEqualExceptSym(a, b, excKey, b.keys)
+} ensuring (equalExcept(b, a, excKey))
+
+// End of equalExcept condition definition and lemmas. 
 
 // Start of lemmas for equalExcept relation in insert and erase operations. 
 
@@ -720,7 +733,7 @@ def rightGetToRootGet[T](t: Node[T], key: Key): Unit = {
   rightContainsNotInLeft(t, key)
 } ensuring (t.contains(key) && t.get(key) == t.right.get(key))
 
-def raiseEqualExceptCondFromLeft[T](a: Node[T], b: Node[T], excKey: Key, ks: List[Key]): Unit = {
+def raiseEqualExceptCondFromLeftList[T](a: Node[T], b: Node[T], excKey: Key, ks: List[Key]): Unit = {
   require(ks.forall(a.left.contains))
   require(ks.forall(k => equalExceptCond(a.left, b.left, excKey, k)))
   childContainsKeys(a, ks) // ks.forall(a.contains)
@@ -736,11 +749,22 @@ def raiseEqualExceptCondFromLeft[T](a: Node[T], b: Node[T], excKey: Key, ks: Lis
         assert(a.get(h) == b.get(h))
       } 
       assert(equalExceptCond(a, b, excKey, h))
-      raiseEqualExceptCondFromLeft(a, b, excKey, t)
+      raiseEqualExceptCondFromLeftList(a, b, excKey, t)
     }
 } ensuring (ks.forall(k => equalExceptCond(a, b, excKey, k)))
 
-def raiseEqualExceptCondFromRight[T](a: Node[T], b: Node[T], excKey: Key, ks: List[Key]): Unit = {
+def raiseEqualExceptCondFromLeft[T](a: Node[T], b: Node[T], excKey: Key): Unit = {
+  require(equalExcept(a.left, b.left, excKey))
+  raiseEqualExceptCondFromLeftList(a, b, excKey, a.left.keys) // a.left.keys.forall(k => equalExceptCond(a, b, excKey, k))
+  equalExceptSym(a.left, b.left, excKey)
+  raiseEqualExceptCondFromLeftList(b, a, excKey, b.left.keys) // b.left.keys.forall(k => equalExceptCond(b, a, excKey, k))
+  forallEqualExceptSym(b, a, excKey, b.left.keys) // b.left.keys.forall(k => equalExceptCond(a, b, excKey, k))
+} ensuring (_ => 
+  a.left.keys.forall(k => equalExceptCond(a, b, excKey, k))
+  && b.left.keys.forall(k => equalExceptCond(a, b, excKey, k))
+)
+
+def raiseEqualExceptCondFromRightList[T](a: Node[T], b: Node[T], excKey: Key, ks: List[Key]): Unit = {
   require(ks.forall(a.right.contains))
   require(ks.forall(k => equalExceptCond(a.right, b.right, excKey, k)))
   childContainsKeys(a, ks) // ks.forall(a.contains)
@@ -756,9 +780,20 @@ def raiseEqualExceptCondFromRight[T](a: Node[T], b: Node[T], excKey: Key, ks: Li
         assert(a.get(h) == b.get(h))
       } 
       assert(equalExceptCond(a, b, excKey, h))
-      raiseEqualExceptCondFromRight(a, b, excKey, t)
+      raiseEqualExceptCondFromRightList(a, b, excKey, t)
     }
 } ensuring (ks.forall(k => equalExceptCond(a, b, excKey, k)))
+
+def raiseEqualExceptCondFromRight[T](a: Node[T], b: Node[T], excKey: Key): Unit = {
+  require(equalExcept(a.right, b.right, excKey))
+  raiseEqualExceptCondFromRightList(a, b, excKey, a.right.keys) 
+  equalExceptSym(a.right, b.right, excKey)
+  raiseEqualExceptCondFromRightList(b, a, excKey, b.right.keys)
+  forallEqualExceptSym(b, a, excKey, b.right.keys)
+} ensuring (_ => 
+  a.right.keys.forall(k => equalExceptCond(a, b, excKey, k))
+  && b.right.keys.forall(k => equalExceptCond(a, b, excKey, k))
+)
 
 def equalExceptReflect[T](t: Tree[T], excKey: Key, ks: List[Key]): Unit = {
   require(ks.forall(t.contains))
@@ -771,40 +806,46 @@ def equalExceptReflect[T](t: Tree[T], excKey: Key, ks: List[Key]): Unit = {
 } ensuring (ks.forall(k => equalExceptCond(t, t, excKey, k)))
 
 def equalExceptInferFromLeft[T](a: Node[T], b: Node[T], excKey: Key): Unit = {
-  require(a.left.equalExcept(b.left, excKey))
+  require(equalExcept(a.left, b.left, excKey))
   require(a.right == b.right)
   require(a.data == b.data)
   val cond = (k: Key) => equalExceptCond(a, b, excKey, k)
   // left
-  raiseEqualExceptCondFromLeft(a, b, excKey, a.left.keys)
+  raiseEqualExceptCondFromLeft(a, b, excKey)
   // right
-  equalExceptReflect(a.right, excKey, a.right.keys) 
-  raiseEqualExceptCondFromRight(a, b, excKey, a.right.keys)
+  equalExceptReflect(a.right, excKey, a.right.keys) // a.right.keys.forall(condRight)
+  equalExceptReflect(b.right, excKey, b.right.keys) // b.right.keys.forall(condRight)
+  raiseEqualExceptCondFromRight(a, b, excKey) 
   // root
   assert(equalCond(a, b, a.data.key))
   assert(equalExceptCond(a, b, excKey, a.data.key))
   // conclude
   listConcatCond3(List(a.data.key), a.left.keys, a.right.keys, cond)
   assert(!a.keys.isEmpty && a.keys.forall(cond))
-} ensuring (a.equalExcept(b, excKey))
+  listConcatCond3(List(b.data.key), b.left.keys, b.right.keys, cond)
+  assert(!b.keys.isEmpty && b.keys.forall(cond))
+} ensuring (equalExcept(a, b, excKey))
 
 def equalExceptInferFromRight[T](a: Node[T], b: Node[T], excKey: Key): Unit = {
-  require(a.right.equalExcept(b.right, excKey))
+  require(equalExcept(a.right, b.right, excKey))
   require(a.left == b.left)
   require(a.data == b.data)
   val cond = (k: Key) => equalExceptCond(a, b, excKey, k)
-  // right
-  raiseEqualExceptCondFromRight(a, b, excKey, a.right.keys)
   // left
   equalExceptReflect(a.left, excKey, a.left.keys)
-  raiseEqualExceptCondFromLeft(a, b, excKey, a.left.keys)
+  equalExceptReflect(b.left, excKey, b.left.keys)
+  raiseEqualExceptCondFromLeft(a, b, excKey) 
+  // right
+  raiseEqualExceptCondFromRight(a, b, excKey)
   // root
   assert(equalCond(a, b, a.data.key))
   assert(equalExceptCond(a, b, excKey, a.data.key))
   // conclude
   listConcatCond3(List(a.data.key), a.left.keys, a.right.keys, cond)
   assert(!a.keys.isEmpty && a.keys.forall(cond))
-} ensuring (a.equalExcept(b, excKey))
+  listConcatCond3(List(b.data.key), b.left.keys, b.right.keys, cond)
+  assert(!b.keys.isEmpty && b.keys.forall(cond))
+} ensuring (equalExcept(a, b, excKey))
 
 def equalExceptInferFromRoot[T](a: Node[T], b: Node[T], excKey: Key): Unit = {
   require(a.left == b.left)
@@ -813,16 +854,20 @@ def equalExceptInferFromRoot[T](a: Node[T], b: Node[T], excKey: Key): Unit = {
   val cond = (k: Key) => equalExceptCond(a, b, excKey, k)
   // left
   equalExceptReflect(a.left, excKey, a.left.keys)
-  raiseEqualExceptCondFromLeft(a, b, excKey, a.left.keys)
+  equalExceptReflect(b.left, excKey, b.left.keys)
+  raiseEqualExceptCondFromLeft(a, b, excKey) 
   // right
   equalExceptReflect(a.right, excKey, a.right.keys) 
-  raiseEqualExceptCondFromRight(a, b, excKey, a.right.keys)
+  equalExceptReflect(b.right, excKey, b.right.keys)
+  raiseEqualExceptCondFromRight(a, b, excKey) 
   // root
   assert(equalExceptCond(a, b, excKey, a.data.key))
   // conclude
   listConcatCond3(List(a.data.key), a.left.keys, a.right.keys, cond)
   assert(!a.keys.isEmpty && a.keys.forall(cond))
-} ensuring (a.equalExcept(b, excKey))
+  listConcatCond3(List(b.data.key), b.left.keys, b.right.keys, cond)
+  assert(!b.keys.isEmpty && b.keys.forall(cond))
+} ensuring (equalExcept(a, b, excKey))
 
 // End of Lemmas for equalExcept relation in insert and erase operations. 
 
