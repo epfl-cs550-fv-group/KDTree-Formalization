@@ -15,6 +15,110 @@ case class IndexedKey(index: BigInt, key: List[Index]) {
   require(0 <= index && index < key.length)
 }
 
+def eachLessThanEq(a: Key, b: Key): Boolean = {
+  require(a.length == b.length)
+  (a, b) match {
+    case (Nil(), Nil()) => true
+    case (Cons(ha, ta), Cons(hb, tb)) =>
+      (ha <= hb) && eachLessThanEq(ta, tb)
+  }
+} 
+
+def eachGreaterThanEq(a: Key, b: Key): Boolean = {
+  require(a.length == b.length)
+  (a, b) match {
+    case (Nil(), Nil()) => true
+    case (Cons(ha, ta), Cons(hb, tb)) =>
+      (ha >= hb) && eachGreaterThanEq(ta, tb)
+  }
+}
+
+def eachLessThanEqAppend(a0: Key, a1: Key, b0: Key, b1: Key): Unit = {
+  require(a0.length == b0.length)
+  require(a1.length == b1.length)
+  require(!eachLessThanEq(a0, b0))
+
+  a0 match {
+    case Nil() => {
+      assert(a0.isEmpty && b0.isEmpty)
+      assert(a0 ++ a1 == a0 && b0 ++ b1 == b0)
+    }
+    case Cons(ha0, ta0) => {
+      val (hb0, tb0) = (b0.head, b0.tail)
+      if !(ha0 <= hb0) then 
+        assert(!eachLessThanEq(a0 ++ a1, b0 ++ b1))
+      else 
+        assert(!eachLessThanEq(ta0, tb0))
+        eachLessThanEqAppend(ta0, a1, tb0, b1)
+        // IH: !eachLessThan(ta0 ++ a1, tb0 ++ b1)
+        assert(!eachLessThanEq(a0 ++ a1, b0 ++ b1))
+    }
+  }
+} ensuring (_ => !eachLessThanEq(a0 ++ a1, b0 ++ b1))
+
+
+def eachLessThanEqPrepend(a0: Key, a1: Key, b0: Key, b1: Key): Unit = {
+  require(a0.length == b0.length)
+  require(a1.length == b1.length)
+  require(!eachLessThanEq(a1, b1))
+
+  a0 match {
+    case Nil() => {
+      assert(a0.isEmpty && b0.isEmpty)
+      assert(a0 ++ a1 == a1 && b0 ++ b1 == b1)
+    }
+    case Cons(ha0, ta0) => {
+      val (hb0, tb0) = (b0.head, b0.tail)
+      eachLessThanEqPrepend(ta0, a1, tb0, b1)
+      // IH: !eachlessThanEq(ta0 ++ a1, tb0 ++ b1)
+      assert(!eachLessThanEq(a0 ++ a1, b0 ++ b1))
+    }
+  }
+} ensuring (_ => !eachLessThanEq(a0 ++ a1, b0 ++ b1))
+
+def eachGreaterThanEqAppend(a0: Key, a1: Key, b0: Key, b1: Key): Unit = {
+  require(a0.length == b0.length)
+  require(a1.length == b1.length)
+  require(!eachGreaterThanEq(a0, b0))
+
+  a0 match {
+    case Nil() => {
+      assert(a0.isEmpty && b0.isEmpty)
+      assert(a0 ++ a1 == a0 && b0 ++ b1 == b0)
+    }
+    case Cons(ha0, ta0) => {
+      val (hb0, tb0) = (b0.head, b0.tail)
+      if !(ha0 >= hb0) then 
+        assert(!eachGreaterThanEq(a0 ++ a1, b0 ++ b1))
+      else 
+        assert(!eachGreaterThanEq(ta0, tb0))
+        eachGreaterThanEqAppend(ta0, a1, tb0, b1)
+        // IH: !eachGreaterThan(ta0 ++ a1, tb0 ++ b1)
+        assert(!eachGreaterThanEq(a0 ++ a1, b0 ++ b1))
+    }
+  }
+} ensuring (_ => !eachGreaterThanEq(a0 ++ a1, b0 ++ b1))
+
+
+def eachGreaterThanEqPrepend(a0: Key, a1: Key, b0: Key, b1: Key): Unit = {
+  require(a0.length == b0.length)
+  require(a1.length == b1.length)
+  require(!eachGreaterThanEq(a1, b1))
+
+  a0 match {
+    case Nil() => {
+      assert(a0.isEmpty && b0.isEmpty)
+      assert(a0 ++ a1 == a1 && b0 ++ b1 == b1)
+    }
+    case Cons(ha0, ta0) => {
+      val (hb0, tb0) = (b0.head, b0.tail)
+      eachGreaterThanEqPrepend(ta0, a1, tb0, b1)
+      // IH: !eachGreaterThanEq(ta0 ++ a1, tb0 ++ b1)
+      assert(!eachGreaterThanEq(a0 ++ a1, b0 ++ b1))
+    }
+  }
+} ensuring (_ => !eachGreaterThanEq(a0 ++ a1, b0 ++ b1))
+
 /** Compares two keys. Returns -1 if `a < b`, 1 if `a > b` and 0 if `a = b` */
 def keyOrder(a: Key, b: Key): Int = {
   require(a.length == b.length)
@@ -25,7 +129,12 @@ def keyOrder(a: Key, b: Key): Int = {
       else if ha > hb then 1
       else keyOrder(ta, tb)
   }
-} ensuring (r => if r == 0 then a == b else a != b)
+} ensuring (r => 
+  (if r == 0 then a == b else a != b)
+  && (if r < 0 then !eachGreaterThanEq(a, b)
+  else if r > 0 then !eachLessThanEq(a, b)
+  else true)
+)
 
 def keyOrderAssoc(a: Key, b: Key, c: Key): Unit = {
   require(a.length == b.length && b.length == c.length)
@@ -71,15 +180,79 @@ def keyOrderAntisymNeg(a: Key, b: Key): Unit = {
   }
 } ensuring (keyOrder(b, a) > 0)
 
+def splitKey(index: BigInt, k: Key): (Key, Key) = {
+  require(0 <= index && index < k.length)
+  
+  def recur(index: BigInt, k: Key): (Key, Key) = {
+    require(0 <= index && index < k.length)
+
+    if index == 0 then (Nil(), k)
+    else {
+      k match {
+        case Nil() => (Nil(), Nil())
+        case Cons(h, t) => {
+          if index == 1 then {
+            (Cons(h, Nil()), t)
+          } else { // index > 1
+            val (sp0, sp1) = recur(index - 1, t)
+            // IH: t == nsp0 ++ nsp1
+            (h :: sp0, sp1)
+          }
+        }
+      }  
+    }
+  } ensuring (r => 
+    k == r._1 ++ r._2 && r._1.length == index && r._2.length == k.length - index
+    && r._1 == k.take(index) && r._2 == k.drop(index)
+  )
+
+  recur(index, k)
+} ensuring (r => 
+  k == r._1 ++ r._2 && r._1.length == index && r._2.length == k.length - index
+  && r._1 == k.take(index) && r._2 == k.drop(index)
+)
+
 // /** Compares two keys given the first major index. Returns -1 if `a < b`, 1 if
 //   * `a > b` and 0 if `a = b`
 //   */
 def keyOrderBy(index: BigInt, a: Key, b: Key): Int = {
   require(a.length == b.length)
   require(0 <= index && index < a.length)
-  val head = keyOrder(a.drop(index), b.drop(index))
-  if head != 0 then head else keyOrder(a.take(index), b.take(index))
-}
+
+  val (a0, a1) = splitKey(index, a)
+  val (b0, b1) = splitKey(index, b)
+  // assert(a == (a0 ++ a1) && (b == b0 ++ b1))
+  assert(a0.length == b0.length && a1.length == b1.length)
+
+  val head = keyOrder(a1, b1)
+  val tail = keyOrder(a0, b0)
+
+  if head < 0 then {
+    assert(!eachGreaterThanEq(a1, b1))
+    eachGreaterThanEqPrepend(a0, a1, b0, b1)    
+  }
+  else if head > 0 then {
+    assert(!eachLessThanEq(a1, b1))
+    eachLessThanEqPrepend(a0, a1, b0, b1)    
+  }
+  else {
+    assert(head == 0)
+    if tail < 0 then {
+      assert(!eachGreaterThanEq(a0, b0))
+      eachGreaterThanEqAppend(a0, a1, b0, b1)
+    }
+    else if tail > 0 then {
+      assert(!eachLessThanEq(a0, b0))
+      eachLessThanEqAppend(a0, a1, b0, b1)    
+    }
+  }
+  
+  if head != 0 then head else tail
+} ensuring (r => 
+  if r < 0 then a != b && !eachGreaterThanEq(a, b)
+  else if r > 0 then a != b && !eachLessThanEq(a, b)
+  else r == 0 && a == b
+)
 
 def keyOrderByEq(index: BigInt, a: Key, b: Key): Unit = {
   require(a.length == b.length)
