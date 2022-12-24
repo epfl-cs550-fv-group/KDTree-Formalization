@@ -382,6 +382,20 @@ sealed trait Tree[T] {
     case Node(data, index, left, right) =>
       data.key == key || left.contains(key) || right.contains(key)
 
+  def get(key: Key): T = {
+    require(contains(key))
+    this match 
+      case Empty() => assert(false)
+      case Node(data, index, left, right) => 
+        if data.key == key then data.value
+        else if left.contains(key) then left.get(key)
+        else right.get(key)
+  }
+
+  def tryGet(key: Key): Option[T] = {
+    if contains(key) then Some(get(key)) else None[T]()
+  }
+
   /** Elements of the tree */
   def elements: List[T] = this match {
     case Empty() => List()
@@ -392,9 +406,17 @@ sealed trait Tree[T] {
   def keys: List[Key] = {
     this match
       case Empty() => List()
-      case Node(data, index, left, right) =>
-        List(data.key) ++ left.keys ++ right.keys
-  } ensuring (ks => ks.length == this.size)
+      case n @ Node(data, index, left, right) =>
+        assert(contains(data.key))
+        val kl = left.keys 
+        childContainsKeys(n, kl)
+        val kr = right.keys
+        childContainsKeys(n, kr)
+        val ks = listConcatCond3(List(data.key), kl, kr, contains)
+        assert(ks == List(data.key) ++ left.keys ++ right.keys)
+        ks
+  } ensuring (ks => 
+    ks.length == this.size && ks.forall(contains))
 
   def compatible(key: Key) = this match
     case Empty()    => true
@@ -402,6 +424,13 @@ sealed trait Tree[T] {
 
   /** Returns whether we can insert `data` into tree. */
   def compatible(data: Data[T]): Boolean = compatible(data.key)
+
+  def equal(that: Tree[T]): Boolean = 
+    this.keys.forall(k => equalCond(this, that, k))
+
+  /** this.equal(that) except the node of data */
+  def equalExcept(that: Tree[T], data: Data[T]): Boolean = 
+    this.keys.forall(k => equalExceptCond(this, that, data, k))
 
   def insertWithRotatingIndex(data: Data[T], from: BigInt): Node[T] = {
     require(0 <= from && from < data.key.length)
@@ -413,6 +442,8 @@ sealed trait Tree[T] {
       && r.elements.contains(data.value)
       // size condition
       && old(this).size <= r.size && r.size <= old(this).size + 1
+      // consistency condition
+      && old(this).equalExcept(r, data)
   )
 
   def insertWithRotatingIndex(
@@ -433,6 +464,7 @@ sealed trait Tree[T] {
         val r = Node(data, from, Empty(), Empty())
         listLtNode(ub, r)
         listGtNode(lb, r)
+        assert(this.equalExcept(r, data))
         r
       case n @ Node(d, index, left, right) =>
         listLtCondTree(ub, n)
@@ -453,6 +485,7 @@ sealed trait Tree[T] {
           val r = Node(d, index, lt, right)
           listLtNode(ub, r)
           listGtNode(lb, r)
+          equalExceptInferFromLeft(n, r, data)
           r
         else if comp > 0 then
           keyOrderByAntisym(index, data.key, d.key)
@@ -469,6 +502,7 @@ sealed trait Tree[T] {
           val r = Node(d, index, left, rt)
           listLtNode(ub, r)
           listGtNode(lb, r)
+          equalExceptInferFromRight(n, r, data)
           r
         else
           // override
@@ -476,6 +510,7 @@ sealed trait Tree[T] {
           val r = Node(data, index, left, right)
           listLtNode(ub, r)
           listGtNode(lb, r)
+          equalExceptInferFromRoot(n, r, data)
           r
     }
   }.ensuring(r =>
@@ -487,6 +522,8 @@ sealed trait Tree[T] {
       // bound conditions
       && ub.forall(ik => r.forallKeys(k1 => lessThan(k1, ik)))
       && lb.forall(ik => r.forallKeys(k1 => greaterThan(k1, ik)))
+      // consistency condition
+      && old(this).equalExcept(r, data)
   )
 
   /** Erases a key from the tree. Returns the old tree if the key does not
@@ -607,6 +644,186 @@ sealed trait Tree[T] {
   )
 }
 
+// Start of equalExcept condition definition. 
+
+def equalCond[T](a: Tree[T], b: Tree[T], key: Key): Boolean = 
+  a.tryGet(key) == b.tryGet(key)
+
+def equalExceptCond[T](a: Tree[T], b: Tree[T], data: Data[T], key: Key): Boolean = 
+  if key != data.key then equalCond(a, b, key) else true
+
+// End of equalExcept condition definition. 
+
+// Start of lemmas for equalExcept relation in insert and erase operations. 
+
+def childContainsKeys[T](t: Node[T], ks: List[Key]): Unit = {
+  require(ks.forall(t.left.contains) || ks.forall(t.right.contains))
+
+  ks match {
+    case Nil() => 
+    case Cons(head, tail) => 
+      assert(t.left.contains(head) || t.right.contains(head))
+      assert(tail.forall(t.left.contains) || tail.forall(t.right.contains))
+      assert(t.contains(head))
+      childContainsKeys(t, tail)
+  }
+} ensuring (ks.forall(t.contains))
+
+def forallNeq[T](t: Tree[T], ik: IndexedKey): Unit = {
+  require(t.forallKeys(k => lessThan(k, ik)) || t.forallKeys(k => greaterThan(k, ik)))
+  t match {
+    case Empty() => {}
+    case Node(data, index, left, right) => 
+      assert(lessThan(data.key, ik) || greaterThan(data.key, ik))
+      assert(data.key != ik.key)
+      forallNeq(left, ik)
+      forallNeq(right, ik)
+  }
+} ensuring (t.forallKeys(k => k != ik.key))
+
+def leftGetToRootGet[T](t: Node[T], key: Key): Unit = {
+  require(t.left.contains(key))
+  assert(t.contains(key))
+  forallNeq(t.left, IndexedKey(t.index, t.data.key))
+  extractForAll(t.left, key, (k: Key) => k != t.data.key)
+} ensuring (t.contains(key) && t.get(key) == t.left.get(key))
+
+def rightContainsNotInLeft[T](t: Node[T], key: Key): Unit = {
+  require(t.right.contains(key))
+  val ik = IndexedKey(t.index, t.data.key)
+
+  assert(t.right.forallKeys(k => greaterThan(k, ik)))
+  extractForAll(t.right, key, (k: Key) => greaterThan(k, ik))
+  assert(greaterThan(key, ik))
+
+  if t.left.contains(key) then 
+    assert(t.left.forallKeys(k => lessThan(k, ik)))
+    extractForAll(t.left, key, (k: Key) => lessThan(k, ik)) // lessThan(key, ik)
+    assert(lessThan(key, ik) && greaterThan(key, ik))
+    assert(keyOrderBy(ik.index, key, ik.key) < 0)
+    assert(keyOrderBy(ik.index, ik.key, key) < 0)
+    keyOrderByAntisymNeg(ik.index, key, ik.key) // keyOrderBy(index, ik.key, key) > 0
+    assert(keyOrderBy(ik.index, ik.key, key) < 0 && keyOrderBy(ik.index, ik.key, key) > 0)
+  else assert(true)
+
+} ensuring (!t.left.contains(key))
+
+def rightGetToRootGet[T](t: Node[T], key: Key): Unit = {
+  require(t.right.contains(key))
+  assert(t.contains(key))
+  // key != data.key
+  forallNeq(t.right, IndexedKey(t.index, t.data.key))
+  extractForAll(t.right, key, (k: Key) => k != t.data.key) 
+  // !t.left.contains(key)
+  rightContainsNotInLeft(t, key)
+} ensuring (t.contains(key) && t.get(key) == t.right.get(key))
+
+def raiseEqualExceptCondFromLeft[T](a: Node[T], b: Node[T], data: Data[T], ks: List[Key]): Unit = {
+  require(ks.forall(a.left.contains))
+  require(ks.forall(k => equalExceptCond(a.left, b.left, data, k)))
+  childContainsKeys(a, ks) // ks.forall(a.contains)
+  ks match {
+    case Nil() => 
+    case Cons(h, t) => 
+      assert(equalExceptCond(a.left, b.left, data, h) && t.forall(k => equalExceptCond(a.left, b.left, data, k)))
+      assert(a.contains(h))
+      if h != data.key then {
+        assert(a.left.get(h) == b.left.get(h))
+        leftGetToRootGet(a, h) // a.left.get(h) == a.get(h)
+        leftGetToRootGet(b, h) // b.left.get(h) == b.get(h)
+        assert(a.get(h) == b.get(h))
+      } 
+      assert(equalExceptCond(a, b, data, h))
+      raiseEqualExceptCondFromLeft(a, b, data, t)
+    }
+} ensuring (ks.forall(k => equalExceptCond(a, b, data, k)))
+
+def raiseEqualExceptCondFromRight[T](a: Node[T], b: Node[T], data: Data[T], ks: List[Key]): Unit = {
+  require(ks.forall(a.right.contains))
+  require(ks.forall(k => equalExceptCond(a.right, b.right, data, k)))
+  childContainsKeys(a, ks) // ks.forall(a.contains)
+  ks match {
+    case Nil() => 
+    case Cons(h, t) => 
+      assert(equalExceptCond(a.right, b.right, data, h) && t.forall(k => equalExceptCond(a.right, b.right, data, k)))
+      assert(a.contains(h))
+      if h != data.key then {
+        assert(a.right.get(h) == b.right.get(h))
+        rightGetToRootGet(a, h) // a.left.get(h) == a.get(h)
+        rightGetToRootGet(b, h) // b.left.get(h) == b.get(h)
+        assert(a.get(h) == b.get(h))
+      } 
+      assert(equalExceptCond(a, b, data, h))
+      raiseEqualExceptCondFromRight(a, b, data, t)
+    }
+} ensuring (ks.forall(k => equalExceptCond(a, b, data, k)))
+
+def equalExceptReflect[T](t: Tree[T], data: Data[T], ks: List[Key]): Unit = {
+  require(ks.forall(t.contains))
+  ks match {
+    case Nil() => 
+    case Cons(head, tail) => 
+      equalExceptCond(t, t, data, head)
+      equalExceptReflect(t, data, tail)
+  }  
+} ensuring (ks.forall(k => equalExceptCond(t, t, data, k)))
+
+def equalExceptInferFromLeft[T](a: Node[T], b: Node[T], data: Data[T]): Unit = {
+  require(a.left.equalExcept(b.left, data))
+  require(a.right == b.right)
+  require(a.data == b.data)
+  val cond = (k: Key) => equalExceptCond(a, b, data, k)
+  // left
+  raiseEqualExceptCondFromLeft(a, b, data, a.left.keys)
+  // right
+  equalExceptReflect(a.right, data, a.right.keys) 
+  raiseEqualExceptCondFromRight(a, b, data, a.right.keys)
+  // root
+  assert(equalCond(a, b, a.data.key))
+  assert(equalExceptCond(a, b, data, a.data.key))
+  // conclude
+  listConcatCond3(List(a.data.key), a.left.keys, a.right.keys, cond)
+  assert(!a.keys.isEmpty && a.keys.forall(cond))
+} ensuring (a.equalExcept(b, data))
+
+def equalExceptInferFromRight[T](a: Node[T], b: Node[T], data: Data[T]): Unit = {
+  require(a.right.equalExcept(b.right, data))
+  require(a.left == b.left)
+  require(a.data == b.data)
+  val cond = (k: Key) => equalExceptCond(a, b, data, k)
+  // right
+  raiseEqualExceptCondFromRight(a, b, data, a.right.keys)
+  // left
+  equalExceptReflect(a.left, data, a.left.keys)
+  raiseEqualExceptCondFromLeft(a, b, data, a.left.keys)
+  // root
+  assert(equalCond(a, b, a.data.key))
+  assert(equalExceptCond(a, b, data, a.data.key))
+  // conclude
+  listConcatCond3(List(a.data.key), a.left.keys, a.right.keys, cond)
+  assert(!a.keys.isEmpty && a.keys.forall(cond))
+} ensuring (a.equalExcept(b, data))
+
+def equalExceptInferFromRoot[T](a: Node[T], b: Node[T], data: Data[T]): Unit = {
+  require(a.left == b.left)
+  require(a.right == b.right)
+  require(a.data.key == b.data.key && a.data.key == data.key)
+  val cond = (k: Key) => equalExceptCond(a, b, data, k)
+  // left
+  equalExceptReflect(a.left, data, a.left.keys)
+  raiseEqualExceptCondFromLeft(a, b, data, a.left.keys)
+  // right
+  equalExceptReflect(a.right, data, a.right.keys) 
+  raiseEqualExceptCondFromRight(a, b, data, a.right.keys)
+  // root
+  assert(equalExceptCond(a, b, data, a.data.key))
+  // conclude
+  listConcatCond3(List(a.data.key), a.left.keys, a.right.keys, cond)
+  assert(!a.keys.isEmpty && a.keys.forall(cond))
+} ensuring (a.equalExcept(b, data))
+
+// End of Lemmas for equalExcept relation in insert and erase operations. 
+
 def nextIndex[T](data: Data[T], index: BigInt): BigInt = {
   require(0 <= index && index < data.key.length)
   if index + 1 == data.key.length then BigInt(0) else index + 1
@@ -691,6 +908,38 @@ case class Node[T](data: Data[T], index: BigInt, left: Tree[T], right: Tree[T])
       .unzip
   } ensuring (r => r._1.size == a.size && r._2.size == b.size)
 }
+
+def listConcatCond[T](l0: List[T], l1: List[T], cond: T => Boolean): List[T] = {
+  require(l0.isEmpty || (!l0.isEmpty && l0.forall(cond)))
+  require(l1.isEmpty || (!l1.isEmpty && l1.forall(cond)))
+
+  l0 match {
+    case Nil() => 
+      assert(l0 ++ l1 == l1)
+      l1   
+    case Cons(h, t) => 
+      assert(l0 ++ l1 == h :: (t ++ l1))
+      assert(!l0.isEmpty && l0.forall(cond))
+      assert(t.isEmpty || !t.isEmpty && t.forall(cond))
+      
+      val r = h :: listConcatCond(t, l1, cond)
+      assert(l0 ++ l1 == h :: (t ++ l1))
+      assert(cond(h))
+      assert(!r.isEmpty && r.forall(cond))
+      r
+  }
+} ensuring(r => (r == l0 ++ l1) && (r.isEmpty || (!r.isEmpty && r.forall(cond))))
+
+def listConcatCond3[T](l0: List[T], l1: List[T], l2: List[T], cond: T => Boolean): List[T] = {
+  require(l0.isEmpty || (!l0.isEmpty && l0.forall(cond)))
+  require(l1.isEmpty || (!l1.isEmpty && l1.forall(cond)))
+  require(l2.isEmpty || (!l2.isEmpty && l2.forall(cond)))
+
+  val v0 = listConcatCond(l0, l1, cond)
+  val v1 = listConcatCond(v0, l2, cond)
+  assert(v1 == l0 ++ l1 ++ l2)
+  v1
+} ensuring(r => (r == l0 ++ l1 ++ l2) && (r.isEmpty || (!r.isEmpty && r.forall(cond))))
 
 /** If a key exists and is less than the root key, go left. */
 def goLeft[T](t: Node[T], key: Key): Unit = {

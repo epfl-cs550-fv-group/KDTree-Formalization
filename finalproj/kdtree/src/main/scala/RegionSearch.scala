@@ -1,7 +1,6 @@
 import stainless.lang._
 import stainless.collection._
 import scala.annotation.meta.companionMethod
-import scala.quoted.*
 
 extension [T](tree: Tree[T]) {
 
@@ -142,37 +141,6 @@ def notInRegionWithPrecond(k: Key, kueb: Key, kleb: Key): Boolean = {
   && !inRegion(k, kueb, kleb)
 }
 
-def listConcatCond[T](l0: List[T], l1: List[T], cond: T => Boolean): List[T] = {
-  require(l0.isEmpty || (!l0.isEmpty && l0.forall(cond)))
-  require(l1.isEmpty || (!l1.isEmpty && l1.forall(cond)))
-
-  l0 match {
-    case Nil() => 
-      assert(l0 ++ l1 == l1)
-      l1   
-    case Cons(h, t) => 
-      assert(l0 ++ l1 == h :: (t ++ l1))
-      assert(!l0.isEmpty && l0.forall(cond))
-      assert(t.isEmpty || !t.isEmpty && t.forall(cond))
-      
-      val r = h :: listConcatCond(t, l1, cond)
-      assert(l0 ++ l1 == h :: (t ++ l1))
-      assert(cond(h))
-      assert(!r.isEmpty && r.forall(cond))
-      r
-  }
-} ensuring(r => (r == l0 ++ l1) && (r.isEmpty || (!r.isEmpty && r.forall(cond))))
-
-def listConcatCond3[T](l0: List[T], l1: List[T], l2: List[T], cond: T => Boolean): List[T] = {
-  require(l0.isEmpty || (!l0.isEmpty && l0.forall(cond)))
-  require(l1.isEmpty || (!l1.isEmpty && l1.forall(cond)))
-  require(l2.isEmpty || (!l2.isEmpty && l2.forall(cond)))
-
-  val v0 = listConcatCond(l0, l1, cond)
-  val v1 = listConcatCond(v0, l2, cond)
-  assert(v1 == l0 ++ l1 ++ l2)
-  v1
-} 
 extension [T](n: Node[T]) {
 
   def inRegionListLeftEmpty(kueb: Key, kleb: Key): Unit = {
