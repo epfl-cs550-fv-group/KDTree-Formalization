@@ -23,6 +23,10 @@ stainless Ordering.scala ListLemmas.scala NestedForallProofs.scala Modification.
 ### Result
 <img width="709" alt="image" src="https://user-images.githubusercontent.com/43364891/210483093-a931046e-499f-4214-a588-558ba50826d5.png">
 
+### Presentation Slide
+
+[<img width="983" alt="image" src="https://user-images.githubusercontent.com/43364891/210485513-eed24716-3a30-43a7-8baf-0c2622336705.png">](https://docs.google.com/presentation/d/1S0h7zZM6XCDGRAgVYgzKi4WCzlz5eBWiLG6wShnYY4c/edit?usp=sharing)
+
 ### Code Structure
 
 ```scala
