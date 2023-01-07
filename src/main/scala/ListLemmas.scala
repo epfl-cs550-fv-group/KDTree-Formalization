@@ -131,6 +131,19 @@ extension [T](xs: List[T]) {
           openTupR(tup(ds, e, as), b, cs, v)
   } ensuring (tup(tup(ds, e, as), b, cs).containsList(xs))
 
+  /** Partition, but with stronger results about result lengths. */
+  def strongPartition(pred: T => Boolean): (List[T], List[T]) = {
+    xs match
+      case Cons(h, t) =>
+        val (ts, fs) = t.strongPartition(pred)
+        if pred(h) then (h :: ts, fs) else (ts, h :: fs)
+      case Nil() => (Nil(), Nil())
+  } ensuring ((ts, fs) =>
+    ts == xs.filter(pred)
+      && fs == xs.filterNot(pred)
+      && xs.size == ts.size + fs.size
+  )
+
   def partitionContainsList(cond: T => Boolean): Unit = {
     xs match
       case Nil() => {}
@@ -212,4 +225,14 @@ extension [T](xs: List[T]) {
         t.listContentConcatCond(l1, l2, cond) // t.forall(cond)
     }
   } ensuring (xs.forall(cond))
+}
+
+extension [A, B](xs: List[(A, B)]) {
+  def unzip: (List[A], List[B]) = {
+    xs match
+      case Cons((a, b), t) =>
+        val (as, bs) = t.unzip
+        (a :: as, b :: bs)
+      case Nil() => (Nil(), Nil())
+  } ensuring (r => r._1 == xs.map(_._1) && r._2 == xs.map(_._2))
 }
