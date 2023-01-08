@@ -992,5 +992,183 @@ object NNQ {
       isCompatibleData(query, res) &&
       res.forall { data => tree.contains(data.key) || acc.contains(data) }
   }
+
+  def nearestNeighborsIsOptimal[T](k: BigInt, query: Key, tree: Tree[T]): Unit = {
+      require(isCompatibleTree(query, tree))
+      require(k > 0)
+
+      nearestNeighborsOptimal(k, Nil(), query, tree, Nil())
+  } ensuring { _ =>
+    isOptimalAmong(nearestNeighbors(k, Nil(), query, tree), query, tree :: Nil())
+  }
+
+  def nearestNeighborsMembership[T](k: BigInt, query: Key, tree: Tree[T]): Unit = {
+      require(isCompatibleTree(query, tree))
+      require(k > 0)
+  } ensuring { _ =>
+    val res = nearestNeighbors(k, Nil(), query, tree)
+    res.length <= k &&
+      res.forall { data => tree.contains(data.key) || Nil().contains(data) }
+  }
+
+  def totalSizeOf[T](trees: List[Tree[T]]): BigInt =
+    trees match
+      case Nil() => BigInt(0)
+      case Cons(tree, trees) => tree.size + totalSizeOf(trees)
+
+  def relaxTotalSizeOf[T](tree0: Tree[T], tree1: Tree[T], trees: List[Tree[T]]): Unit = {
+    require(tree0.size <= tree1.size)
+  } ensuring { _ =>
+    totalSizeOf(tree0 :: trees) <= totalSizeOf(tree1 :: trees)
+  }
+
+  def min(a: BigInt, b: BigInt): BigInt =
+    if a >= b then b else a
+
+  def elimMin(a: BigInt, b: BigInt): Unit = {
+    if a >= b then ()
+    else ()
+  } ensuring { _ =>
+    min(a, b) <= a && min(a, b) <= b
+  }
+
+  def addElemSize[T](k: BigInt, query: Key, p: Data[T], ps: List[Data[T]]): Unit = {
+    require(k > 0)
+    require(ps.length <= k)
+    require(isCompatibleData(query, ps))
+    require(query.length == p.key.length)
+
+    if ps.length < k then ()
+    else ()
+
+  } ensuring { _ =>
+    val res = addElem(k, query, p, ps)
+    if ps.length < k then res.length == ps.length + 1 && res.length <= k
+    else res.length == k
+  }
+
+  def minRelaxRight(a: BigInt, b: BigInt, b1: BigInt): Unit = {
+    require(a == min(a, b))
+    require(b <= b1)
+    if a >= b then () else ()
+  } ensuring { _ =>
+    a == min(a, b1)
+  }
+
+  def treeSizeLeft[T](tree: Node[T]): Unit = {
+  } ensuring { _ =>
+    tree.left.size < tree.size
+  }
+
+  def treeSizeRight[T](tree: Node[T]): Unit = {
+  } ensuring { _ =>
+    tree.right.size < tree.size
+  }
+
+  def nearestNeighborsSizeHelper[T](k: BigInt,
+                                    acc: List[Data[T]],
+                                    query: Key, tree: Tree[T],
+                                    accTrees: List[Tree[T]]): Unit = {
+    require(isCompatibleTree(query, tree))
+    require(k > 0)
+    require(acc.length <= k)
+    require(isCompatibleData(query, acc))
+
+    require(acc.length == min(k, totalSizeOf(accTrees)))
+
+    tree match
+      case Empty() =>
+        ()
+      case tree @ Node(data, index, left, right) =>
+        if query(index) <= data.key(index) then
+          val acc1 = nearestNeighbors(k, acc, query, left)
+          nearestNeighborsSizeHelper(k, acc, query, left, accTrees)
+          // assert(acc1.length == min(k, totalSizeOf(left :: accTrees)))
+          if acc1.length >= k then
+            val (dl, l, _) = findMaxElem(query, acc1)
+            if dl <= abs(query(index), data.key(index)) then
+              // addElem(k, query, data, acc1)
+              addElemSize(k, query, data, acc1)
+              // res.length == k
+              // min(k, totalSizeOf(left :: accTrees)) == k
+              // ==> min(k, totalSizeOf(tree :: accTrees)) == k
+              assert(min(k, totalSizeOf(left :: accTrees)) == k)
+              treeSizeLeft(tree)
+              minRelaxRight(k, totalSizeOf(left :: accTrees), totalSizeOf(tree :: accTrees))
+            else
+              val res0 = nearestNeighbors(k, acc1, query, right)
+              nearestNeighborsSizeHelper(k, acc1, query, right, left :: accTrees)
+              // assert(res0.length == min(k, totalSizeOf(right :: left :: accTrees)))
+              addElemSize(k, query, data, res0)
+              if res0.length < k then
+                ()
+              else
+                assert(min(k, totalSizeOf(right :: left :: accTrees)) == k)
+                assert(tree.size > right.size + left.size)
+                minRelaxRight(k, totalSizeOf(right :: left :: accTrees), totalSizeOf(tree :: accTrees))
+          else
+            val res0 = nearestNeighbors(k, acc1, query, right)
+            nearestNeighborsSizeHelper(k, acc1, query, right, left :: accTrees)
+            // assert(res0.length == min(k, totalSizeOf(right :: left :: accTrees)))
+            addElemSize(k, query, data, res0)
+            if res0.length < k then
+              ()
+            else
+              assert(min(k, totalSizeOf(right :: left :: accTrees)) == k)
+              assert(tree.size > right.size + left.size)
+              minRelaxRight(k, totalSizeOf(right :: left :: accTrees), totalSizeOf(tree :: accTrees))
+        else
+          val acc1 = nearestNeighbors(k, acc, query, right)
+          nearestNeighborsSizeHelper(k, acc, query, right, accTrees)
+          // assert(acc1.length == min(k, totalSizeOf(right :: accTrees)))
+          if acc1.length >= k then
+            val (dl, l, _) = findMaxElem(query, acc1)
+            if dl <= abs(query(index), data.key(index)) then
+              // addElem(k, query, data, acc1)
+              addElemSize(k, query, data, acc1)
+              // res.length == k
+              // min(k, totalSizeOf(right :: accTrees)) == k
+              // ==> min(k, totalSizeOf(tree :: accTrees)) == k
+              assert(min(k, totalSizeOf(right :: accTrees)) == k)
+              treeSizeLeft(tree)
+              minRelaxRight(k, totalSizeOf(right :: accTrees), totalSizeOf(tree :: accTrees))
+            else
+              val res0 = nearestNeighbors(k, acc1, query, left)
+              nearestNeighborsSizeHelper(k, acc1, query, left, right :: accTrees)
+              // assert(res0.length == min(k, totalSizeOf(left :: right :: accTrees)))
+              addElemSize(k, query, data, res0)
+              if res0.length < k then
+                ()
+              else
+                assert(min(k, totalSizeOf(left :: right :: accTrees)) == k)
+                assert(tree.size > left.size + right.size)
+                minRelaxRight(k, totalSizeOf(left :: right :: accTrees), totalSizeOf(tree :: accTrees))
+          else
+            val res0 = nearestNeighbors(k, acc1, query, left)
+            nearestNeighborsSizeHelper(k, acc1, query, left, right :: accTrees)
+            // assert(res0.length == min(k, totalSizeOf(left :: right :: accTrees)))
+            addElemSize(k, query, data, res0)
+            if res0.length < k then
+              ()
+            else
+              assert(min(k, totalSizeOf(left :: right :: accTrees)) == k)
+              assert(tree.size > left.size + right.size)
+              minRelaxRight(k, totalSizeOf(left :: right :: accTrees), totalSizeOf(tree :: accTrees))
+
+  } ensuring { _ =>
+    val res = nearestNeighbors(k, acc, query, tree)
+    res.length == min(k, totalSizeOf(tree :: accTrees))
+  }
+
+  def nearestNeighborsSize[T](k: BigInt,
+                              query: Key, tree: Tree[T]): Unit = {
+    require(isCompatibleTree(query, tree))
+    require(k > 0)
+    nearestNeighborsSizeHelper(k, Nil(), query, tree, Nil())
+
+  } ensuring { _ =>
+    val res = nearestNeighbors(k, Nil(), query, tree)
+    res.length == min(k, tree.size)
+  }
 }
 
