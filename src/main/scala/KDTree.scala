@@ -194,38 +194,6 @@ case class Node[T](data: Data[T], index: BigInt, left: Tree[T], right: Tree[T])
   } ensuring (r => r._1.size == a.size && r._2.size == b.size)
 }
 
-def listConcatCond[T](l0: List[T], l1: List[T], cond: T => Boolean): List[T] = {
-  require(l0.isEmpty || (!l0.isEmpty && l0.forall(cond)))
-  require(l1.isEmpty || (!l1.isEmpty && l1.forall(cond)))
-
-  l0 match {
-    case Nil() => 
-      assert(l0 ++ l1 == l1)
-      l1   
-    case Cons(h, t) => 
-      assert(l0 ++ l1 == h :: (t ++ l1))
-      assert(!l0.isEmpty && l0.forall(cond))
-      assert(t.isEmpty || !t.isEmpty && t.forall(cond))
-      
-      val r = h :: listConcatCond(t, l1, cond)
-      assert(l0 ++ l1 == h :: (t ++ l1))
-      assert(cond(h))
-      assert(!r.isEmpty && r.forall(cond))
-      r
-  }
-} ensuring(r => (r == l0 ++ l1) && (r.isEmpty || (!r.isEmpty && r.forall(cond))))
-
-def listConcatCond3[T](l0: List[T], l1: List[T], l2: List[T], cond: T => Boolean): List[T] = {
-  require(l0.isEmpty || (!l0.isEmpty && l0.forall(cond)))
-  require(l1.isEmpty || (!l1.isEmpty && l1.forall(cond)))
-  require(l2.isEmpty || (!l2.isEmpty && l2.forall(cond)))
-
-  val v0 = listConcatCond(l0, l1, cond)
-  val v1 = listConcatCond(v0, l2, cond)
-  assert(v1 == l0 ++ l1 ++ l2)
-  v1
-} ensuring(r => (r == l0 ++ l1 ++ l2) && (r.isEmpty || (!r.isEmpty && r.forall(cond))))
-
 def rootContainsLeftData[T](n: Node[T], d: Data[T]): Unit = {
   val (data, index, left, right) = (n.data, n.index, n.left, n.right)
   require(left.containsData(d))
@@ -374,13 +342,3 @@ def allKeysSameLengthAs[T](t: Tree[T], key: Key): Unit = {
     }
 } ensuring (t.forallKeys(_.length == key.length))
 
-/** Appending lists hold the same conditions */
-def appendCond[T](as: List[T], bs: List[T], cond: T => Boolean): Unit = {
-  require(as.forall(cond(_)) && bs.forall(cond(_)))
-
-  as match
-    case Nil() => {}
-    case Cons(h, t) =>
-      assert(cond(h))
-      appendCond(t, bs, cond)
-} ensuring (_ => (as ++ bs).forall(cond(_)))

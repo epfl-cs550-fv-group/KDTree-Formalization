@@ -42,28 +42,6 @@ object NNQ {
       case Cons(y, ys) => x.length == y.key.length && isCompatibleData(x, ys)
     }
 
-  // def isLargestDist[T](d: BigInt, p: Data[T], ps: List[Data[T]]): Boolean =
-  //   require(isCompatibleData(p, ps))
-  //   ps match {
-  //     case Nil() => true
-  //     case Cons(q, ps) => d >= l1Dist(p.key, q.key) && isLargestDist(d, p, ps)
-  //   }
-
-  // def largerDist[T](d: BigInt, d0: BigInt, p: Data[T], ps: List[Data[T]]): Unit = {
-  //   require(d >= d0)
-  //   require(isCompatibleData(p, ps))
-  //   require(isLargestDist(d0, p, ps))
-
-  //   ps match {
-  //     case Nil() =>
-  //       ()
-  //     case Cons(q, ps) =>
-  //       largerDist(d, d0, p, ps)
-  //       ()
-  //   }
-
-  // } ensuring { _ => isLargestDist(d, p, ps) }
-
   def membership[T](res: List[Data[T]], tree: Tree[T], acc: List[Data[T]]): Boolean =
     res.forall { data => tree.contains(data.key) || acc.contains(data) }
 
