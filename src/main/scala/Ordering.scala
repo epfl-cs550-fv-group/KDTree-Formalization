@@ -12,7 +12,7 @@ type Index = BigInt
   */
 type Key = List[Index]
 
-case class IndexedKey(index: BigInt, key: List[Index]) {
+case class IndexedKey(index: Index, key: List[Index]) {
   require(0 <= index && index < key.length)
 }
 
@@ -181,10 +181,10 @@ def keyOrderAntisymNeg(a: Key, b: Key): Unit = {
   }
 } ensuring (keyOrder(b, a) > 0)
 
-def splitKey(index: BigInt, k: Key): (Key, Key) = {
+def splitKey(index: Index, k: Key): (Key, Key) = {
   require(0 <= index && index < k.length)
   
-  def recur(index: BigInt, k: Key): (Key, Key) = {
+  def recur(index: Index, k: Key): (Key, Key) = {
     require(0 <= index && index < k.length)
 
     if index == 0 then (Nil(), k)
@@ -216,7 +216,7 @@ def splitKey(index: BigInt, k: Key): (Key, Key) = {
 // /** Compares two keys given the first major index. Returns -1 if `a < b`, 1 if
 //   * `a > b` and 0 if `a = b`
 //   */
-def keyOrderBy(index: BigInt, a: Key, b: Key): Int = {
+def keyOrderBy(index: Index, a: Key, b: Key): Int = {
   require(a.length == b.length)
   require(0 <= index && index < a.length)
 
@@ -255,11 +255,11 @@ def keyOrderBy(index: BigInt, a: Key, b: Key): Int = {
   else r == 0 && a == b
 )
 
-def keyOrderByEq(index: BigInt, a: Key, b: Key): Unit = {
+def keyOrderByEq(index: Index, a: Key, b: Key): Unit = {
   require(a.length == b.length)
   require(0 <= index && index < a.length)
 
-  def rotatedEq(a: Key, b: Key, r: BigInt): Unit = {
+  def rotatedEq(a: Key, b: Key, r: Index): Unit = {
     require(a.length == b.length)
     require(0 <= r && r < a.length)
     require(a.drop(r) == b.drop(r) && a.take(r) == b.take(r))
@@ -267,7 +267,7 @@ def keyOrderByEq(index: BigInt, a: Key, b: Key): Unit = {
     splitEq(b, r)
   } ensuring (a == b)
 
-  def splitEq(a: Key, r: BigInt): Unit = {
+  def splitEq(a: Key, r: Index): Unit = {
     require(0 <= r && r < a.length)
     if r == 0 then {
       assert(a.take(r) == Nil())
@@ -283,7 +283,7 @@ def keyOrderByEq(index: BigInt, a: Key, b: Key): Unit = {
   else {}
 } ensuring (_ => if keyOrderBy(index, a, b) == 0 then a == b else a != b)
 
-def keyOrderByAssoc(index: BigInt, a: Key, b: Key, c: Key): Unit = {
+def keyOrderByAssoc(index: Index, a: Key, b: Key, c: Key): Unit = {
   require(a.length == b.length && b.length == c.length)
   require(0 <= index && index < a.length)
   require(keyOrderBy(index, a, b) < 0)
@@ -296,7 +296,7 @@ def keyOrderByAssoc(index: BigInt, a: Key, b: Key, c: Key): Unit = {
   else if keyOrder(b.drop(index), c.drop(index)) == 0 then {} else
     keyOrderAssoc(a.drop(index), b.drop(index), c.drop(index))
 } ensuring (keyOrderBy(index, a, c) < 0)
-def keyOrderByAssocEq(index: BigInt, a: Key, b: Key, c: Key): Unit = {
+def keyOrderByAssocEq(index: Index, a: Key, b: Key, c: Key): Unit = {
   require(a.length == b.length && b.length == c.length)
   require(0 <= index && index < a.length)
   require(keyOrderBy(index, a, b) <= 0)
@@ -313,23 +313,22 @@ def keyOrderByAssocEq(index: BigInt, a: Key, b: Key, c: Key): Unit = {
 def greaterBy[T](t: Tree[T], index: Index, a: Data[T], b: Data[T]): Data[T] = {
   require(a.key.length == b.key.length)
   require(0 <= index && index < a.key.length)
-  require(t.contains(a.key) && t.get(a.key) == a.value)
-  require(t.contains(b.key) && t.get(b.key) == b.value)
+  require(t.containsData(a))
+  require(t.containsData(b))
   if keyOrderBy(index, a.key, b.key) <= 0 then b
   else
     keyOrderByAntisym(index, a.key, b.key)
     a
-} ensuring (k =>
-  k.key.length == a.key.length &&
-    keyOrderBy(index, a.key, k.key) <= 0
-    && keyOrderBy(index, b.key, k.key) <= 0
-    && (keyOrderBy(index, a.key, k.key) == 0
-      || keyOrderBy(index, b.key, k.key) == 0)
-    && t.contains(k.key) 
-    && t.get(k.key) == k.value
+} ensuring (data =>
+  t.containsData(data)
+  && data.key.length == a.key.length 
+  && keyOrderBy(index, a.key, data.key) <= 0
+  && keyOrderBy(index, b.key, data.key) <= 0
+  && (keyOrderBy(index, a.key, data.key) == 0
+    || keyOrderBy(index, b.key, data.key) == 0)
 )
 
-def keyOrderByAntisym(index: BigInt, a: Key, b: Key): Unit = {
+def keyOrderByAntisym(index: Index, a: Key, b: Key): Unit = {
   require(a.length == b.length)
   require(0 <= index && index < a.length)
   require(keyOrderBy(index, a, b) > 0)
@@ -337,7 +336,7 @@ def keyOrderByAntisym(index: BigInt, a: Key, b: Key): Unit = {
     keyOrderAntisym(a.take(index), b.take(index))
   else keyOrderAntisym(a.drop(index), b.drop(index))
 } ensuring (_ => keyOrderBy(index, b, a) < 0)
-def keyOrderByAntisymNeg(index: BigInt, a: Key, b: Key): Unit = {
+def keyOrderByAntisymNeg(index: Index, a: Key, b: Key): Unit = {
   require(a.length == b.length)
   require(0 <= index && index < a.length)
   require(keyOrderBy(index, a, b) < 0)

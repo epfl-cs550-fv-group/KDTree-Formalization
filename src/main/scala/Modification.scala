@@ -4,10 +4,10 @@ import scala.annotation.meta.companionMethod
 
 extension [T](tree: Tree[T]){
 	
-  def insertWithRotatingIndex(data: Data[T], from: BigInt): Node[T] = {
+  def insert(data: Data[T], from: Index): Node[T] = {
     require(0 <= from && from < data.key.length)
     require(tree.compatible(data))
-    tree.insertWithRotatingIndex(data, from, List(), List())
+    tree.insert(data, from, List(), List())
   } ensuring (r =>
     // membership condition
       r.containsData(data)
@@ -17,9 +17,9 @@ extension [T](tree: Tree[T]){
       && equalExcept(tree, r, data.key)
   )
 
-  def insertWithRotatingIndex(
+  def insert(
       data: Data[T],
-      from: BigInt,
+      from: Index,
       ub: List[IndexedKey],
       lb: List[IndexedKey]
   ): Node[T] = {
@@ -47,7 +47,7 @@ extension [T](tree: Tree[T]){
           listLtCondCons(ik, ub, n.left)
 
           // left tree
-          val lt = left.insertWithRotatingIndex(
+          val lt = left.insert(
             data,
             nextIndex(data, index),
             ik :: ub,
@@ -64,7 +64,7 @@ extension [T](tree: Tree[T]){
           listGtCondCons(ik, lb, n.right)
 
           // right tree
-          val rt = right.insertWithRotatingIndex(
+          val rt = right.insert(
             data,
             nextIndex(data, index),
             ub,

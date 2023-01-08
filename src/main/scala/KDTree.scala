@@ -113,7 +113,7 @@ def nextIndex[T](data: Data[T], index: BigInt): BigInt = {
 case class Empty[T]() extends Tree[T]
 
 /** A non-empty node */
-case class Node[T](data: Data[T], index: BigInt, left: Tree[T], right: Tree[T])
+case class Node[T](data: Data[T], index: Index, left: Tree[T], right: Tree[T])
     extends Tree[T] {
   require(0 <= index && index < data.key.length)
   require(
