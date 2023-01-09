@@ -5,7 +5,11 @@
 - Stainless 0.9.7
 - Scala 3.2.0
 
+---
+
 ### Verification
+
+#### Instructions
 
 Optional but **recommended**: Use nix to run a bash shell that provides the development environment.
 ```bash
@@ -20,12 +24,23 @@ stainless Ordering.scala ListLemmas.scala NestedForallProofs.scala Modification.
 
 `TIMEOUT`: Personally I use 10 seconds in my MBP with Intel i7.
 
-### Result
-<img width="709" alt="image" src="https://user-images.githubusercontent.com/43364891/210483093-a931046e-499f-4214-a588-558ba50826d5.png">
+#### Result
+<img width="752" alt="image" src="https://user-images.githubusercontent.com/43364891/211338168-f959a69c-73e6-4adc-a0ab-909b7f329fca.png">
+
+---
+### Run Example
+```bash
+# in the repo directory
+sbt run
+```
+
+---
 
 ### Presentation Slide
 
 [<img width="983" alt="image" src="https://user-images.githubusercontent.com/43364891/210485513-eed24716-3a30-43a7-8baf-0c2622336705.png">](https://docs.google.com/presentation/d/1S0h7zZM6XCDGRAgVYgzKi4WCzlz5eBWiLG6wShnYY4c/edit?usp=sharing)
+
+---
 
 ### Code Structure
 
@@ -41,6 +56,3 @@ stainless Ordering.scala ListLemmas.scala NestedForallProofs.scala Modification.
 ├── Ordering.scala // Definitions and lemmas related to key ordering.
 └── RegionSearch.scala // Region Search algorithm.
 ```
-
-### Proof Outline
-TBA
