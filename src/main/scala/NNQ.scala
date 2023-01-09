@@ -1148,5 +1148,8 @@ object NNQ {
     val res = nearestNeighbors(k, Nil(), query, tree)
     res.length == min(k, tree.size)
   }
+
+  def nearestNeighbors[T](k: BigInt, query: Key, tree: Tree[T]): List[Data[T]] =
+    nearestNeighbors(k, Nil(), query, tree)
 }
 
